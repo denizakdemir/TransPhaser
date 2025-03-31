@@ -27,7 +27,7 @@ class ELBOLoss(nn.Module):
 
         self.kl_weight = kl_weight
         self.reconstruction_weight = reconstruction_weight
-        print("Placeholder: ELBOLoss initialized.")
+        # Removed placeholder print
 
     def forward(self, model_output):
         """
@@ -64,7 +64,8 @@ class ELBOLoss(nn.Module):
         """Allows updating the KL weight, e.g., for annealing."""
         if not isinstance(new_weight, (int, float)) or new_weight < 0:
             raise ValueError("new_weight must be a non-negative number.")
-        print(f"Updating KL weight from {self.kl_weight:.4f} to {new_weight:.4f}")
+        # Removed print statement, logging handled in trainer
+        # print(f"Updating KL weight from {self.kl_weight:.4f} to {new_weight:.4f}")
         self.kl_weight = new_weight
 
 
@@ -107,7 +108,7 @@ class KLAnnealingScheduler:
 
         self.current_step = 0
         self.current_weight = self._calculate_weight() # Calculate initial weight
-        print(f"Placeholder: KLAnnealingScheduler initialized (type={self.anneal_type}). Initial weight={self.current_weight:.4f}")
+        # Removed placeholder print
 
     def step(self):
         """Advances the scheduler by one step and updates the current weight."""

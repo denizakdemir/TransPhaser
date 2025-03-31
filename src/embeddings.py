@@ -27,7 +27,7 @@ class LocusPositionalEmbedding(nn.Module):
 
         # Simple embedding layer where each locus index maps to a vector
         self.locus_embeddings = nn.Embedding(num_embeddings=num_loci, embedding_dim=embedding_dim)
-        print("Placeholder: LocusPositionalEmbedding initialized.")
+        # Removed placeholder print
 
     def forward(self, locus_indices):
         """
@@ -45,7 +45,7 @@ class LocusPositionalEmbedding(nn.Module):
         if torch.any(locus_indices < 0) or torch.any(locus_indices >= self.num_loci):
              raise ValueError(f"locus_indices contains values out of range [0, {self.num_loci - 1}]")
 
-        print("Placeholder: LocusPositionalEmbedding forward pass.")
+        # Removed placeholder print
         return self.locus_embeddings(locus_indices)
 
 
@@ -78,7 +78,7 @@ class AlleleEmbedding(nn.Module):
             locus: nn.Embedding(num_embeddings=size, embedding_dim=embedding_dim)
             for locus, size in vocab_sizes.items()
         })
-        print("Placeholder: AlleleEmbedding initialized.")
+        # Removed placeholder print
 
     def forward(self, allele_tokens_per_locus):
         """
@@ -96,8 +96,7 @@ class AlleleEmbedding(nn.Module):
                   corresponding allele embeddings (torch.Tensor), shape
                   (batch_size, seq_len_per_locus, embedding_dim).
         """
-        # Placeholder implementation - needs careful handling of input shapes/structure
-        print("Placeholder: AlleleEmbedding forward pass.")
+        # Removed placeholder print
         output_embeddings = {}
         for locus, tokens in allele_tokens_per_locus.items():
             if locus in self.locus_embedders:

@@ -8,6 +8,14 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
+# --- Add project root to sys.path ---
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+# ------------------------------------
+
 # --- Import TransPhaser Components ---
 # Configuration
 from src.config import HLAPhasingConfig, DataConfig, ModelConfig, TrainingConfig
@@ -24,7 +32,7 @@ from src.loss import ELBOLoss, KLAnnealingScheduler # Import loss function and s
 from torch.optim import Adam # Import optimizer
 
 # Evaluation
-from src.evaluation import HLAPhasingMetrics # Correct class for metrics
+from src.evaluation import HLAPhasingMetrics, PhasingUncertaintyEstimator # Import Uncertainty Estimator
 
 # Samplers (for prediction)
 # Note: GreedySampler was not found in src/samplers.py.
@@ -120,7 +128,7 @@ if __name__ == "__main__":
     data_cfg = DataConfig(locus_columns=loci, covariate_columns=covariate_cols)
     model_cfg = ModelConfig(embedding_dim=64, latent_dim=32, num_layers=2, num_heads=4, ff_dim=128, dropout=0.1)
     # Reduce learning rate
-    training_cfg = TrainingConfig(batch_size=32, learning_rate=1e-4, epochs=200) # Lower LR
+    training_cfg = TrainingConfig(batch_size=32, learning_rate=1e-4, epochs=100) # Lower LR
 
     config = HLAPhasingConfig(
         data=data_cfg,
@@ -330,27 +338,37 @@ if __name__ == "__main__":
                 # predicted_tokens_h1 shape: (batch_size, num_loci)
                 predicted_tokens_h1 = model.predict_haplotypes(pred_batch)
 
-                # --- Placeholder for Haplotype 2 ---
-                # The current predict_haplotypes only generates one sequence.
-                # For evaluation, we need a pair. We'll generate a dummy H2 based on H1.
-                # TODO: Implement prediction for the second haplotype. This requires ensuring
-                # the predicted pair (H1, H2) is compatible with the input genotype.
-                # For now, derive H2 by finding the other allele in the input genotype.
-                genotype_tokens_batch = batch['genotype_tokens'] # Shape (batch, num_loci * 2)
-                # Initialize H2 tensor directly
-                predicted_tokens_h2 = torch.zeros_like(predicted_tokens_h1) # Same shape as H1
+                # --- Derive Haplotype 2 from Predicted H1 and Input Genotype ---
+                # The model predicts one haplotype (h1). We derive the second (h2)
+                # by finding the allele in the input genotype that complements h1 at each locus.
+                genotype_tokens_batch = batch['genotype_tokens'].to(DEVICE) # Shape (batch, num_loci * 2)
+                predicted_tokens_h2 = torch.zeros_like(predicted_tokens_h1) # Initialize h2 tensor
 
                 for i in range(predicted_tokens_h1.size(0)): # Iterate through samples in batch
                     for j in range(num_loci_val): # Iterate through loci
-                        locus_genotype = genotype_tokens_batch[i, j*2:(j+1)*2] # Get the two input tokens for this locus
+                        # Get the two input genotype tokens for this locus
+                        # Ensure comparison happens on the correct device
+                        locus_genotype_token1 = genotype_tokens_batch[i, j * 2]
+                        locus_genotype_token2 = genotype_tokens_batch[i, j * 2 + 1]
                         pred_h1_token = predicted_tokens_h1[i, j]
 
-                        # Find the other token in the genotype
-                        if locus_genotype[0] == pred_h1_token:
-                            predicted_tokens_h2[i, j] = locus_genotype[1] # Assign directly to tensor
+                        # Find the complementary token from the input genotype
+                        # Handle potential homozygosity (both input tokens are the same)
+                        if locus_genotype_token1 == pred_h1_token:
+                            # If token1 matches h1, h2 must be token2
+                            predicted_tokens_h2[i, j] = locus_genotype_token2
+                        elif locus_genotype_token2 == pred_h1_token:
+                             # If token2 matches h1, h2 must be token1
+                             predicted_tokens_h2[i, j] = locus_genotype_token1
                         else:
-                            predicted_tokens_h2[i, j] = locus_genotype[0] # Assign directly to tensor
-                # --- End Placeholder ---
+                             # This case should ideally not happen if the model predicts an allele
+                             # present in the input genotype. If it does, it indicates a potential
+                             # issue with the model's prediction or the input data consistency.
+                             # As a fallback, arbitrarily pick one of the genotype tokens.
+                             # Log a warning if this happens frequently.
+                             logging.warning(f"Sample {i}, Locus {loci[j]}: Predicted H1 token {pred_h1_token.item()} not found in genotype tokens ({locus_genotype_token1.item()}, {locus_genotype_token2.item()}). Using fallback for H2.")
+                             predicted_tokens_h2[i, j] = locus_genotype_token1 # Fallback
+                # --- End Haplotype 2 Derivation ---
 
                 # Convert predicted tokens to allele strings
                 batch_size = predicted_tokens_h1.shape[0]
@@ -389,8 +407,52 @@ if __name__ == "__main__":
         logging.info(f"Predictions saved to {PREDICTIONS_FILE}")
 
     except Exception as e:
-        logging.error(f"An error occurred during prediction: {e}")
+        logging.error(f"An error occurred during prediction: {e}", exc_info=True) # Add exc_info
         predictions_df = pd.DataFrame()
+
+    # 6.5 Estimate Uncertainty (using the validation set)
+    logging.info("Estimating prediction uncertainty for the validation set...")
+    all_uncertainties = []
+    try:
+        uncertainty_estimator = PhasingUncertaintyEstimator(model=model)
+        with torch.no_grad():
+            for batch in predict_loader: # Use the same loader as prediction
+                # Prepare batch for uncertainty estimation (needs genotype, covariates)
+                uncertainty_batch = {
+                    'genotype_tokens': batch['genotype_tokens'].to(DEVICE),
+                    'covariates': batch['covariates'].to(DEVICE)
+                }
+                uncertainty_results = uncertainty_estimator.estimate_uncertainty(uncertainty_batch)
+                # Assuming 'mean_prediction_entropy' is returned
+                if 'mean_prediction_entropy' in uncertainty_results:
+                    batch_uncertainty = uncertainty_results['mean_prediction_entropy'].cpu().numpy()
+                    all_uncertainties.extend(batch_uncertainty)
+                else:
+                    logging.warning("Uncertainty estimator did not return 'mean_prediction_entropy'.")
+                    # Add NaNs to maintain length if needed, or break
+                    all_uncertainties.extend([np.nan] * uncertainty_batch['genotype_tokens'].size(0))
+
+
+        if all_uncertainties:
+            # Filter out NaNs before calculating mean
+            valid_uncertainties = [u for u in all_uncertainties if not np.isnan(u)]
+            if valid_uncertainties:
+                 mean_uncertainty = np.mean(valid_uncertainties)
+                 logging.info(f"Mean Prediction Entropy (Uncertainty) on Validation Set: {mean_uncertainty:.4f}")
+                 # Optionally, save uncertainties to the predictions_df
+                 if len(all_uncertainties) == len(predictions_df):
+                     predictions_df['MeanPredictionEntropy'] = all_uncertainties
+                     predictions_df.to_csv(PREDICTIONS_FILE, index=False) # Re-save with uncertainty
+                     logging.info(f"Updated predictions with uncertainty saved to {PREDICTIONS_FILE}")
+                 else:
+                     logging.warning("Length mismatch between uncertainties and predictions. Not adding to CSV.")
+            else:
+                 logging.warning("No valid uncertainty values calculated.")
+        else:
+            logging.warning("Uncertainty estimation did not produce results.")
+
+    except Exception as e:
+        logging.error(f"An error occurred during uncertainty estimation: {e}", exc_info=True)
 
 
     # 7. Evaluate Predictions

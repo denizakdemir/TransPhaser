@@ -225,7 +225,7 @@ class HLAPhasingModel(nn.Module):
 
     # Add torch.no_grad() back for inference efficiency
     @torch.no_grad()
-    def predict_haplotypes(self, batch, max_len=None):
+    def predict_haplotypes(self, batch, max_len=None, return_logits=False):
         """
         Predicts haplotype sequences autoregressively using the trained model.
 
@@ -233,10 +233,19 @@ class HLAPhasingModel(nn.Module):
             batch (dict): A batch containing 'genotype_tokens' and optionally 'covariates'.
             max_len (int, optional): Maximum length of the generated sequence (number of loci).
                                      Defaults to self.num_loci.
+            return_logits (bool, optional): If True, also returns the masked logits used
+                                            at each prediction step. Defaults to False.
 
         Returns:
-            torch.Tensor: Tensor of predicted haplotype token sequences (excluding BOS/EOS).
-                          Shape (batch_size, num_loci).
+            torch.Tensor or tuple:
+                If return_logits is False:
+                    Tensor of predicted haplotype token sequences (excluding BOS/EOS).
+                    Shape (batch_size, num_loci).
+                If return_logits is True:
+                    A tuple containing:
+                    - Predicted sequence tensor (batch_size, num_loci)
+                    - List of masked logits tensors, one for each step.
+                      Each tensor shape (batch_size, vocab_size).
         """
         self.eval() # Ensure model is in eval mode
         genotype_tokens = batch['genotype_tokens'].to(self.encoder.positional_embedding.weight.device) # Move to model device
@@ -260,6 +269,7 @@ class HLAPhasingModel(nn.Module):
                                           self.tokenizer.special_tokens.get("BOS", 2),
                                           dtype=torch.long, device=device)
         predicted_sequence = torch.zeros((batch_size, max_len), dtype=torch.long, device=device)
+        all_step_logits = [] if return_logits else None
 
         for step in range(max_len):
             # Prepare decoder input for this step
@@ -291,8 +301,42 @@ class HLAPhasingModel(nn.Module):
             step_logits[:, eos_token_id] = -float('inf') # Prevent predicting EOS
             # --- End prevention ---
 
-            # Greedy sampling: take the most likely token
+            # --- Enforce Genotype Compatibility ---
+            # Get the two valid allele tokens for the current locus from the input genotype
+            locus_genotype_token1 = genotype_tokens[:, step * 2]     # Shape: (batch_size,)
+            locus_genotype_token2 = genotype_tokens[:, step * 2 + 1] # Shape: (batch_size,)
+
+            # Create a compatibility mask (batch_size, vocab_size)
+            # Initialize with False (invalid)
+            vocab_size = step_logits.size(-1)
+            compatibility_mask = torch.zeros_like(step_logits, dtype=torch.bool) # Use boolean mask
+
+            # Set True for the valid tokens for each sample in the batch
+            # Use scatter_ with dim=1 to efficiently set indices based on genotype tokens
+            compatibility_mask.scatter_(1, locus_genotype_token1.unsqueeze(1), True)
+            compatibility_mask.scatter_(1, locus_genotype_token2.unsqueeze(1), True)
+
+            # Apply the compatibility mask to the logits (set invalid tokens to -inf)
+            # Combine with the special token masking already done
+            step_logits[~compatibility_mask] = -float('inf')
+            # --- End Genotype Compatibility ---
+
+            # Store logits if requested (store the masked logits)
+            if return_logits:
+                all_step_logits.append(step_logits.clone()) # Clone to avoid modification issues
+
+            # Greedy sampling: take the most likely token from the doubly-masked logits
             predicted_token = torch.argmax(step_logits, dim=-1) # Shape: (batch_size,)
+
+            # --- Debug: Check if predicted token is valid ---
+            # for i in range(batch_size):
+            #     p_tok = predicted_token[i].item()
+            #     g_tok1 = locus_genotype_token1[i].item()
+            #     g_tok2 = locus_genotype_token2[i].item()
+            #     if p_tok != g_tok1 and p_tok != g_tok2:
+            #         logging.warning(f"Prediction Step {step}, Sample {i}: Predicted token {p_tok} is not in genotype ({g_tok1}, {g_tok2}) despite masking!")
+            # --- End Debug ---
+
 
             # Store prediction
             predicted_sequence[:, step] = predicted_token
@@ -302,4 +346,7 @@ class HLAPhasingModel(nn.Module):
 
             # Optional: Add EOS token handling if needed
 
-        return predicted_sequence # Shape: (batch_size, num_loci)
+        if return_logits:
+            return predicted_sequence, all_step_logits
+        else:
+            return predicted_sequence # Shape: (batch_size, num_loci)

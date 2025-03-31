@@ -207,27 +207,33 @@ class CompatibilityMaskGenerator:
 
 class HaplotypeConstraintPropagator:
     """
-    Propagates haplotype constraints across loci to reduce the search space
+    Propagates haplotype constraints across loci to potentially reduce the search space
     during generation or inference.
-    (Conceptual placeholder - implementation depends heavily on how linkage
-     disequilibrium or multi-locus constraints are defined and used).
+
+    Note: A meaningful implementation requires specific multi-locus constraint rules
+    (e.g., based on Linkage Disequilibrium data), which are not provided by default.
+    This implementation provides the structure but performs no actual propagation.
     """
     def __init__(self, compatibility_rules):
         """
         Initializes the HaplotypeConstraintPropagator.
 
         Args:
-            compatibility_rules: An instance of HLACompatibilityRules (or similar
-                                 object defining multi-locus constraints if applicable).
+            compatibility_rules: An instance potentially defining multi-locus constraints.
+                                 Currently, HLACompatibilityRules only handles single-locus checks.
         """
-        # if not isinstance(compatibility_rules, HLACompatibilityRules):
-        #      raise TypeError("compatibility_rules must be an instance of HLACompatibilityRules")
+        # TODO: Enhance compatibility_rules or provide a separate mechanism
+        #       for defining multi-locus constraints (e.g., LD data).
         self.compatibility_rules = compatibility_rules
-        print("Placeholder: HaplotypeConstraintPropagator initialized.")
+        logging.info("HaplotypeConstraintPropagator initialized. Note: Using trivial propagation (no multi-locus rules).")
 
     def propagate(self, partial_haplotypes, known_genotypes):
         """
-        Propagates constraints based on partially generated haplotypes and known genotypes.
+        Applies multi-locus constraints based on partially generated haplotypes.
+
+        Note: This is a trivial implementation as no multi-locus rules (e.g., LD data)
+              are provided. It currently returns no additional constraints beyond
+              what single-locus compatibility implies.
 
         Args:
             partial_haplotypes (dict): Dictionary mapping locus -> (hap1_allele, hap2_allele)
@@ -235,14 +241,19 @@ class HaplotypeConstraintPropagator:
             known_genotypes (dict): Dictionary mapping locus -> [allele1, allele2] for all loci.
 
         Returns:
-            dict: Updated constraints or possibilities for undetermined loci.
-                  (Structure TBD - could be updated masks, lists of valid alleles, etc.)
+            dict: A dictionary representing any derived constraints. In this trivial
+                  implementation, it always returns an empty dictionary, signifying
+                  no cross-locus constraints were derived.
+                  A functional implementation using LD data might return:
+                  {'B': {'valid_hap2_alleles': {'B*15:01'}},
+                   'C': {'valid_pairs': {('C*03:04', 'C*07:01'), ('C*07:01', 'C*03:04')}}}
         """
-        # Placeholder implementation
-        print("Placeholder: Propagating constraints.")
-        # Actual logic would involve:
-        # 1. Using LD information or multi-locus rules defined in compatibility_rules.
-        # 2. Iterating through loci and updating the set of possible alleles for
-        #    undetermined loci based on the alleles chosen for determined loci.
-        # This is complex and depends on the specific biological constraints modeled.
-        return {} # Return empty dict as placeholder
+        logging.debug("Constraint propagation called (trivial implementation - no multi-locus rules applied).")
+
+        # Trivial implementation: Return an empty dictionary as no cross-locus
+        # constraints can be derived without specific rules or data (like LD).
+        # A real implementation would analyze partial_haplotypes against known_genotypes
+        # using LD patterns or other rules to restrict possibilities at undetermined loci.
+        propagated_constraints = {}
+
+        return propagated_constraints

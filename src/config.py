@@ -19,7 +19,9 @@ except ImportError:
 class DataConfig(BaseModel):
     locus_columns: List[str] = ["HLA-A", "HLA-B", "HLA-C", "HLA-DRB1", "HLA-DQB1", "HLA-DPB1"] # Example k=6
     covariate_columns: List[str] = []
-    # Add other data-related params like file paths, validation rules etc.
+    unphased_data_path: Optional[str] = None # Path to unphased genotype data
+    phased_data_path: Optional[str] = None # Path to phased haplotype data (optional, for evaluation)
+    # Add other data-related params like validation rules etc.
 
 class ModelConfig(BaseModel):
     # Common params
@@ -52,6 +54,8 @@ class HLAPhasingConfig(BaseModel):
     """
     model_name: str = "HLA-Phaser-v1"
     seed: int = 42
+    device: str = "cpu" # Device to use ('cuda' or 'cpu')
+    output_dir: str = "output" # Directory for saving results, models, etc.
     data: DataConfig = Field(default_factory=DataConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
