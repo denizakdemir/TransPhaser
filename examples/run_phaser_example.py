@@ -8,31 +8,24 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
-# --- Add project root to sys.path ---
-import sys
-import os
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-# ------------------------------------
 
 # --- Import TransPhaser Components ---
 # Configuration
-from src.config import HLAPhasingConfig, DataConfig, ModelConfig, TrainingConfig
+from transphaser.config import HLAPhasingConfig, DataConfig, ModelConfig, TrainingConfig
 
 # Data Preprocessing
-from src.data_preprocessing import GenotypeDataParser, AlleleTokenizer, CovariateEncoder, HLADataset
+from transphaser.data_preprocessing import GenotypeDataParser, AlleleTokenizer, CovariateEncoder, HLADataset
 
 # Model Components
-from src.model import HLAPhasingModel
+from transphaser.model import HLAPhasingModel
 
 # Training
-from src.trainer import HLAPhasingTrainer
-from src.loss import ELBOLoss, KLAnnealingScheduler # Import loss function and scheduler
+from transphaser.trainer import HLAPhasingTrainer
+from transphaser.loss import ELBOLoss, KLAnnealingScheduler # Import loss function and scheduler
 from torch.optim import Adam # Import optimizer
 
 # Evaluation
-from src.evaluation import HLAPhasingMetrics, PhasingUncertaintyEstimator # Import Uncertainty Estimator
+from transphaser.evaluation import HLAPhasingMetrics, PhasingUncertaintyEstimator # Import Uncertainty Estimator
 
 # Samplers (for prediction)
 # Note: GreedySampler was not found in src/samplers.py.
@@ -126,9 +119,9 @@ if __name__ == "__main__":
     # --- Create Config Object ---
     vocab_sizes = {locus: allele_tokenizer.get_vocab_size(locus) for locus in loci}
     data_cfg = DataConfig(locus_columns=loci, covariate_columns=covariate_cols)
-    model_cfg = ModelConfig(embedding_dim=64, latent_dim=32, num_layers=2, num_heads=4, ff_dim=128, dropout=0.1)
+    model_cfg = ModelConfig(embedding_dim=64, latent_dim=32, num_layers=2, num_heads=4, ff_dim=16, dropout=0.1)
     # Reduce learning rate
-    training_cfg = TrainingConfig(batch_size=32, learning_rate=1e-4, epochs=100) # Lower LR
+    training_cfg = TrainingConfig(batch_size=32, learning_rate=1e-4, epochs=5) # Lower LR
 
     config = HLAPhasingConfig(
         data=data_cfg,
@@ -172,20 +165,26 @@ if __name__ == "__main__":
     train_phased_haplotypes = df_phased_truth_indexed.loc[train_df['IndividualID']]['Haplotype1'].tolist()
     val_phased_haplotypes = df_phased_truth_indexed.loc[val_df['IndividualID']]['Haplotype1'].tolist()
 
+    # d) Extract Sample IDs
+    train_sample_ids = train_df['IndividualID'].tolist()
+    val_sample_ids = val_df['IndividualID'].tolist()
+
     # Create datasets
     train_dataset = HLADataset(
         genotypes=train_genotypes_parsed,
         covariates=train_covariates_encoded,
         phased_haplotypes=train_phased_haplotypes,
         tokenizer=allele_tokenizer,
-        loci_order=loci
+        loci_order=loci,
+        sample_ids=train_sample_ids # Pass sample IDs
     )
     val_dataset = HLADataset(
         genotypes=val_genotypes_parsed,
         covariates=val_covariates_encoded,
         phased_haplotypes=val_phased_haplotypes,
         tokenizer=allele_tokenizer,
-        loci_order=loci
+        loci_order=loci,
+        sample_ids=val_sample_ids # Pass sample IDs
     )
 
     # Create DataLoaders
@@ -202,11 +201,11 @@ if __name__ == "__main__":
     encoder_cfg = {
         "vocab_sizes": vocab_sizes,
         "num_loci": num_loci_val,
-        "embedding_dim": config.model.embedding_dim,
-        "num_heads": config.model.num_heads,
-        "num_layers": config.model.num_layers,
-        "ff_dim": config.model.ff_dim,
-        "dropout": config.model.dropout,
+        "embedding_dim": config.model.embedding_dim, # Common param
+        "num_heads": config.model.num_heads, # Common param
+        "num_layers": config.model.encoder.num_layers, # From encoder sub-config
+        "ff_dim": config.model.encoder.hidden_dim, # Assuming ff_dim corresponds to hidden_dim in sub-config
+        "dropout": config.model.encoder.dropout, # From encoder sub-config
         "covariate_dim": cov_dim,
         "latent_dim": config.model.latent_dim,
         "loci_order": loci
@@ -214,11 +213,11 @@ if __name__ == "__main__":
     decoder_cfg = {
         "vocab_sizes": vocab_sizes,
         "num_loci": num_loci_val,
-        "embedding_dim": config.model.embedding_dim,
-        "num_heads": config.model.num_heads,
-        "num_layers": config.model.num_layers,
-        "ff_dim": config.model.ff_dim,
-        "dropout": config.model.dropout,
+        "embedding_dim": config.model.embedding_dim, # Common param
+        "num_heads": config.model.num_heads, # Common param
+        "num_layers": config.model.decoder.num_layers, # From decoder sub-config
+        "ff_dim": config.model.decoder.hidden_dim, # Assuming ff_dim corresponds to hidden_dim in sub-config
+        "dropout": config.model.decoder.dropout, # From decoder sub-config
         "covariate_dim": cov_dim,
         "latent_dim": config.model.latent_dim,
         "loci_order": loci
@@ -332,7 +331,8 @@ if __name__ == "__main__":
                     'genotype_tokens': batch['genotype_tokens'].to(DEVICE),
                     'covariates': batch['covariates'].to(DEVICE)
                 }
-                sample_indices = batch['sample_index']
+                # Use 'sample_id' as returned by HLADataset
+                sample_ids_batch = batch['sample_id']
 
                 # Use model's predict method
                 # predicted_tokens_h1 shape: (batch_size, num_loci)
@@ -395,8 +395,8 @@ if __name__ == "__main__":
                     predicted_haplotypes_batch.append(tuple(sorted((hap1_str, hap2_str))))
 
                 all_predicted_haplotypes.extend(predicted_haplotypes_batch)
-                batch_individual_ids = val_df.iloc[sample_indices.cpu().numpy()]['IndividualID'].tolist()
-                all_individual_ids.extend(batch_individual_ids)
+                # Use the sample IDs directly from the batch
+                all_individual_ids.extend(sample_ids_batch)
 
         predictions_df = pd.DataFrame({
             'IndividualID': all_individual_ids,
