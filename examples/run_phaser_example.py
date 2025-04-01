@@ -121,7 +121,7 @@ if __name__ == "__main__":
     data_cfg = DataConfig(locus_columns=loci, covariate_columns=covariate_cols)
     model_cfg = ModelConfig(embedding_dim=64, latent_dim=32, num_layers=2, num_heads=4, ff_dim=16, dropout=0.1)
     # Reduce learning rate
-    training_cfg = TrainingConfig(batch_size=32, learning_rate=1e-4, epochs=5) # Lower LR
+    training_cfg = TrainingConfig(batch_size=32, learning_rate=1e-4, epochs=500) # Lower LR
 
     config = HLAPhasingConfig(
         data=data_cfg,

@@ -125,7 +125,39 @@ class MissingDataMarginalizer:
         # 4. Averaging the results (e.g., using importance weights if applicable).
         # This is complex and depends heavily on the model structure and chosen technique.
 
-        raise NotImplementedError("Marginal likelihood calculation for missing data is not yet implemented.")
+        # --- Monte Carlo Estimation Implementation ---
+        if not hasattr(self.model, 'sample_imputation'):
+            raise AttributeError("Model must have a 'sample_imputation' method for marginalization.")
+        if not hasattr(self.model, 'calculate_log_likelihood'):
+             raise AttributeError("Model must have a 'calculate_log_likelihood' method for marginalization.")
+
+        batch_log_likelihoods = []
+        for _ in range(self.sampling_iterations):
+            # 1. Sample imputations for the missing data in the batch
+            # We assume sample_imputation returns a *new* batch dict with imputed values
+            imputed_batch = self.model.sample_imputation(batch_with_missing)
+
+            # 2. Calculate the log likelihood for this imputed batch
+            # We assume calculate_log_likelihood returns log p(x|z) or similar
+            # For VAEs, this might be the reconstruction term + prior term, or just recon.
+            # Let's assume it returns the log-likelihood needed for marginalization.
+            log_likelihood_sample = self.model.calculate_log_likelihood(imputed_batch)
+            batch_log_likelihoods.append(log_likelihood_sample)
+
+        # 3. Average the log likelihoods across samples
+        # Stack the likelihoods for each sample in the batch across iterations
+        # Shape: (sampling_iterations, batch_size)
+        stacked_log_likelihoods = torch.stack(batch_log_likelihoods, dim=0)
+
+        # Average using log-sum-exp for numerical stability:
+        # log( (1/N) * sum(exp(log_lik_i)) ) = log(sum(exp(log_lik_i))) - log(N)
+        # This calculates the log of the average likelihood.
+        log_sum_exp = torch.logsumexp(stacked_log_likelihoods, dim=0)
+        log_num_samples = torch.log(torch.tensor(self.sampling_iterations, dtype=torch.float32, device=log_sum_exp.device))
+        marginal_log_likelihood = log_sum_exp - log_num_samples
+
+        # Return the estimated marginal log likelihood per sample in the batch
+        return marginal_log_likelihood
 
     def impute(self, batch_with_missing):
         """
@@ -146,7 +178,17 @@ class MissingDataMarginalizer:
         #    for missing values conditional on observed values.
         # 3. Filling missing entries based on a chosen strategy (e.g., mode, sample).
 
-        raise NotImplementedError("Imputation within MissingDataMarginalizer is not yet implemented.")
+        # --- Implementation ---
+        # This method primarily acts as a wrapper around the model's imputation capability.
+        # It might add logic for choosing *which* imputation method of the model to call,
+        # but for now, we assume the model has a primary method like `sample_imputation`.
+        if not hasattr(self.model, 'sample_imputation'):
+            raise AttributeError("Model must have a 'sample_imputation' method for imputation.")
+
+        # Call the model's imputation method
+        imputed_batch = self.model.sample_imputation(batch_with_missing)
+
+        return imputed_batch
 
 
 class AlleleImputer:
@@ -195,4 +237,58 @@ class AlleleImputer:
         # 4. If strategy='sampling', sample from the predicted distribution.
         # 5. Replacing the UNK tokens with the imputed allele tokens.
 
-        raise NotImplementedError("Allele imputation is not yet implemented.")
+        # --- Implementation ---
+        if 'genotypes_tokens' not in batch_with_missing:
+            logging.error("Batch dictionary must contain 'genotypes_tokens' for imputation.")
+            return batch_with_missing # Return original batch or raise error
+
+        tokens = batch_with_missing['genotypes_tokens'].clone() # Clone to avoid modifying original
+        unk_token_id = self.model.unk_token_id # Get UNK ID from model (as added in mock)
+
+        # 1. Identify missing allele positions
+        missing_mask = (tokens == unk_token_id)
+        if not torch.any(missing_mask):
+            return batch_with_missing # No missing data, return original
+
+        # 2. Use the model to predict probabilities for alleles at *all* positions
+        #    (Simpler than predicting only for missing, model handles context)
+        if not hasattr(self.model, 'predict_missing_probabilities'):
+             raise AttributeError("Model must have a 'predict_missing_probabilities' method for imputation.")
+        predicted_probs = self.model.predict_missing_probabilities(batch_with_missing)
+        # predicted_probs shape: (batch_size, seq_len, vocab_size)
+
+        # 3. & 4. Impute based on strategy
+        imputed_values = None
+        if self.imputation_strategy == 'sampling':
+            if not hasattr(self.model, 'sample_from_probabilities'):
+                 raise AttributeError("Model must have a 'sample_from_probabilities' method for 'sampling' strategy.")
+            # Sample tokens for *all* positions based on predicted probabilities
+            sampled_tokens = self.model.sample_from_probabilities(predicted_probs)
+            # Use the sampled tokens only for the originally missing positions
+            imputed_values = sampled_tokens[missing_mask]
+
+        elif self.imputation_strategy == 'mode':
+            if not hasattr(self.model, 'get_mode_from_probabilities'):
+                 raise AttributeError("Model must have a 'get_mode_from_probabilities' method for 'mode' strategy.")
+            # Get the most likely token for *all* positions
+            mode_tokens = self.model.get_mode_from_probabilities(predicted_probs)
+            # Use the mode tokens only for the originally missing positions
+            imputed_values = mode_tokens[missing_mask]
+
+        else:
+            # This case should ideally be caught during initialization, but double-check
+            raise ValueError(f"Internal error: Unsupported imputation strategy '{self.imputation_strategy}' encountered.")
+
+        # 5. Replace UNK tokens with imputed values
+        if imputed_values is not None:
+            tokens[missing_mask] = imputed_values
+        else:
+             # Should not happen if strategies are handled correctly
+             logging.error("Imputation failed: imputed_values were not generated.")
+
+
+        # Create the output batch dictionary
+        imputed_batch = batch_with_missing.copy() # Start with a copy
+        imputed_batch['genotypes_tokens'] = tokens # Update with imputed tokens
+
+        return imputed_batch

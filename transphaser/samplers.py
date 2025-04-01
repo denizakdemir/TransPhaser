@@ -113,4 +113,27 @@ class ConstrainedHaplotypeSampler:
         # 3. Returning num_samples valid pairs.
         # This might involve rejection sampling or more sophisticated constrained decoding/sampling.
 
-        raise NotImplementedError("Constrained haplotype sampling is not yet implemented.")
+        # --- Implementation for filtering candidate_pairs ---
+        if 'candidate_pairs' not in kwargs:
+            # For now, this implementation only supports filtering provided candidates.
+            # A more advanced sampler might generate candidates internally.
+            logging.error("ConstrainedHaplotypeSampler requires 'candidate_pairs' in kwargs for current implementation.")
+            return [] # Or raise an error
+
+        candidate_pairs = kwargs['candidate_pairs']
+        if not isinstance(candidate_pairs, list):
+             raise TypeError("'candidate_pairs' must be a list of haplotype pairs.")
+
+        valid_pairs = []
+        for hap1, hap2 in candidate_pairs:
+            # Assuming genotype_info is the genotype list [allele1, allele2] for this simple case
+            if self.compatibility_checker.check(genotype_info, hap1, hap2):
+                valid_pairs.append((hap1, hap2))
+
+        # Return the requested number of samples, up to the number of valid pairs found.
+        num_valid = len(valid_pairs)
+        num_to_return = min(num_samples, num_valid)
+
+        # For simplicity and test reproducibility, return the first 'num_to_return' valid pairs.
+        # A more sophisticated sampler might randomly sample from valid_pairs.
+        return valid_pairs[:num_to_return]

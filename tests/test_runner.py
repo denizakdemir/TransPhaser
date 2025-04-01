@@ -121,6 +121,11 @@ class TestHLAPhasingRunner(unittest.TestCase):
         self.config.data.locus_columns = ['HLA-A'] # Simplify for test
         self.config.data.covariate_columns = ['Cov1']
         self.config.training.epochs = 1 # Run only one epoch for faster test
+        # Add LR scheduler config for testing
+        self.config.training.lr_scheduler = {
+             "type": "StepLR",
+             "args": {"step_size": 10, "gamma": 0.1}
+         }
 
     def tearDown(self):
         # Remove the temporary directory after tests
@@ -159,12 +164,13 @@ class TestHLAPhasingRunner(unittest.TestCase):
              patch('transphaser.runner.HLAPhasingModel', MockHLAPhasingModel) as mock_model_cls, \
              patch('transphaser.runner.ELBOLoss', MockELBOLoss) as mock_loss_cls, \
              patch('transphaser.runner.KLAnnealingScheduler', MockKLAnnealingScheduler) as mock_kl_cls, \
-             patch('transphaser.runner.Adam', MockOptimizer) as mock_optimizer_cls, \
-             patch('transphaser.runner.HLAPhasingTrainer', MockHLAPhasingTrainer) as mock_trainer_cls, \
-             patch('transphaser.runner.HLAPhasingMetrics', MockHLAPhasingMetrics) as mock_metrics_cls, \
-             patch('transphaser.runner.PerformanceReporter', MockPerformanceReporter) as mock_reporter_cls, \
-             patch('torch.save') as mock_torch_save, \
-             patch('transphaser.runner.os.makedirs') as mock_runner_makedirs: # Patch os.makedirs specifically in runner
+              patch('transphaser.runner.Adam', MockOptimizer) as mock_optimizer_cls, \
+              patch('transphaser.runner.StepLR') as mock_step_lr_cls, \
+              patch('transphaser.runner.HLAPhasingTrainer', MockHLAPhasingTrainer) as mock_trainer_cls, \
+              patch('transphaser.runner.HLAPhasingMetrics', MockHLAPhasingMetrics) as mock_metrics_cls, \
+              patch('transphaser.runner.PerformanceReporter', MockPerformanceReporter) as mock_reporter_cls, \
+              patch('torch.save') as mock_torch_save, \
+              patch('transphaser.runner.os.makedirs') as mock_runner_makedirs: # Patch os.makedirs specifically in runner
 
             # Configure mock tokenizer detokenize method inside the 'with' block
             mock_tokenizer_cls.return_value.detokenize.return_value = "A*01:01" # Return a dummy allele string
@@ -197,7 +203,18 @@ class TestHLAPhasingRunner(unittest.TestCase):
             mock_loss_cls.assert_called_once()
             mock_kl_cls.assert_called_once()
             mock_optimizer_cls.assert_called_once()
+            # Check LR scheduler instantiation
+            mock_step_lr_cls.assert_called_once_with(
+                 mock_optimizer_instance, # Check it got the optimizer instance
+                 step_size=self.config.training.lr_scheduler['args']['step_size'],
+                 gamma=self.config.training.lr_scheduler['args']['gamma']
+             )
             mock_trainer_cls.assert_called_once()
+            # Check trainer received the instantiated scheduler
+            # call_args is a tuple (args, kwargs)
+            _, trainer_kwargs = mock_trainer_cls.call_args
+            self.assertIn('lr_scheduler', trainer_kwargs) # Check key exists
+            self.assertIs(trainer_kwargs['lr_scheduler'], mock_step_lr_cls.return_value) # Check instance passed
             mock_trainer_cls.return_value.train.assert_called_once() # Check train was called
             mock_model_cls.return_value.eval.assert_called() # Check model set to eval mode
             mock_model_cls.return_value.predict_haplotypes.assert_called() # Check prediction was called

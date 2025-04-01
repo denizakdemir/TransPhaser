@@ -7,8 +7,8 @@ import logging
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from torch.optim import Adam # Assuming Adam is the default or configured optimizer
-# Import LR Schedulers if needed based on config
-# from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR # Example schedulers
+# Import LR Schedulers
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR # Example schedulers
 
 # --- Import TransPhaser Components ---
 # Configuration
@@ -338,22 +338,41 @@ class HLAPhasingRunner:
 
         # LR Scheduler (Optional)
         self.lr_scheduler = None
-        if hasattr(self.config.training, 'lr_scheduler') and self.config.training.lr_scheduler:
-            scheduler_type = self.config.training.lr_scheduler.type
-            scheduler_args = self.config.training.lr_scheduler.args.dict() if hasattr(self.config.training.lr_scheduler, 'args') else {}
-            logging.info(f"Configuring LR Scheduler: type={scheduler_type}, args={scheduler_args}")
-            # Example: Add specific schedulers based on type
-            # if scheduler_type == 'StepLR':
-            #     self.lr_scheduler = StepLR(self.optimizer, **scheduler_args)
-            # elif scheduler_type == 'CosineAnnealingLR':
-            #      # Ensure T_max is provided or calculated
-            #      if 'T_max' not in scheduler_args:
-            #          scheduler_args['T_max'] = self.config.training.epochs * steps_per_epoch # Example: cosine over all steps
-            #      self.lr_scheduler = CosineAnnealingLR(self.optimizer, **scheduler_args)
-            # else:
-            #     logging.warning(f"Unsupported LR scheduler type: {scheduler_type}. No LR scheduler will be used.")
-            # For now, just log that it's configured but don't instantiate until specific types are handled
-            logging.warning(f"LR Scheduler '{scheduler_type}' configured but not yet implemented in runner. Add specific instantiation logic.")
+        # Use getattr for safer access to lr_scheduler attribute
+        lr_scheduler_config = getattr(self.config.training, 'lr_scheduler', None)
+        if lr_scheduler_config:
+            # Use dictionary access for nested config
+            scheduler_type = lr_scheduler_config.get('type')
+            # Get args, default to empty dict if 'args' key is missing or None
+            scheduler_args = lr_scheduler_config.get('args', {}) or {}
+
+            if not scheduler_type:
+                 logging.warning("LR scheduler configuration found but 'type' is missing. No LR scheduler will be used.")
+            else:
+                logging.info(f"Configuring LR Scheduler: type={scheduler_type}, args={scheduler_args}")
+                try:
+                    if scheduler_type == 'StepLR':
+                        self.lr_scheduler = StepLR(self.optimizer, **scheduler_args)
+                        logging.info("StepLR scheduler configured.")
+                    elif scheduler_type == 'CosineAnnealingLR':
+                         # Ensure T_max is provided or calculated if needed
+                         if 'T_max' not in scheduler_args:
+                             # Default T_max to total training steps if not provided
+                             scheduler_args['T_max'] = self.config.training.epochs * steps_per_epoch
+                             logging.info(f"CosineAnnealingLR 'T_max' not specified, defaulting to total steps: {scheduler_args['T_max']}")
+                         self.lr_scheduler = CosineAnnealingLR(self.optimizer, **scheduler_args)
+                         logging.info("CosineAnnealingLR scheduler configured.")
+                    else:
+                        logging.warning(f"Unsupported LR scheduler type: {scheduler_type}. No LR scheduler will be used.")
+                except TypeError as e:
+                     logging.error(f"Error initializing LR scheduler '{scheduler_type}' with args {scheduler_args}: {e}. Check config arguments.")
+                     self.lr_scheduler = None # Ensure scheduler is None if init fails
+                except Exception as e:
+                     logging.error(f"Unexpected error initializing LR scheduler '{scheduler_type}': {e}", exc_info=True)
+                     self.lr_scheduler = None
+
+            # Remove the old placeholder warning
+            # logging.warning(f"LR Scheduler '{scheduler_type}' configured but not yet implemented in runner. Add specific instantiation logic.")
 
 
     def _train_model(self):

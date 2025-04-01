@@ -1,5 +1,6 @@
+import random # For sampling
 # Import necessary components
-from transphaser.compatibility import HaplotypeCompatibilityChecker
+from transphaser.compatibility import HaplotypeCompatibilityChecker, HLACompatibilityRules
 
 class HaplotypeSpaceExplorer:
     """
@@ -45,4 +46,37 @@ class HaplotypeSpaceExplorer:
         # 2. Using self.compatibility_checker to validate candidates.
         # 3. Applying sampling strategies (beam search, nucleus, etc.) with temperature.
 
-        raise NotImplementedError(f"Haplotype sampling strategy '{strategy}' is not yet implemented.")
+        if strategy == 'exhaustive':
+            # Use HLACompatibilityRules to find all valid pairs directly
+            # Note: This bypasses the need for a generative model for this simple strategy
+            rules = HLACompatibilityRules() # Instantiate rules helper
+            try:
+                valid_pairs = rules.get_valid_haplotype_pairs(genotype)
+            except TypeError as e:
+                 logging.error(f"Invalid genotype format for exhaustive sampling: {genotype}. Error: {e}")
+                 return [] # Return empty list for invalid input
+
+            # Return the requested number of samples, up to the total number available
+            num_to_return = min(num_samples, len(valid_pairs))
+
+            # Randomly sample if requesting fewer than available, otherwise return all
+            if num_to_return < len(valid_pairs):
+                return random.sample(valid_pairs, num_to_return)
+            else:
+                return valid_pairs # Return the full list
+
+        # --- Placeholder for other strategies ---
+        # elif strategy == 'greedy':
+        #     # Implementation using model predictions and compatibility checker
+        #     pass
+        # elif strategy == 'beam':
+        #     # Implementation using beam search
+        #     pass
+        # elif strategy == 'nucleus':
+        #     # Implementation using nucleus sampling
+        #     pass
+        # --- End Placeholder ---
+
+        else:
+            # If strategy is not 'exhaustive' or any other implemented one, raise error
+            raise NotImplementedError(f"Haplotype sampling strategy '{strategy}' is not yet implemented.")

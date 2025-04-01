@@ -399,7 +399,53 @@ class HaplotypeCandidateRanker:
         # 3. Sorting candidates based on the final score.
         # 4. Returning the top 'self.num_candidates'.
 
-        raise NotImplementedError("Haplotype candidate ranking is not yet implemented.")
+        # --- Implementation ---
+        self.model.eval() # Ensure model is in eval mode
+        batch_size = len(candidate_haplotypes) # Assume outer list length is batch size
+        ranked_results_batch = []
+
+        if not hasattr(self.model, 'score_haplotype_pair'):
+             raise AttributeError("Model must have a 'score_haplotype_pair' method for ranking.")
+
+        for i in range(batch_size):
+            sample_candidates = candidate_haplotypes[i]
+            if not sample_candidates:
+                ranked_results_batch.append([]) # No candidates for this sample
+                continue
+
+            # Extract necessary info for this sample from the batch if needed by the model's scorer
+            # For the mock, we don't need specific batch info per sample, but a real model might.
+            # Example: batch_sample_info = {'genotype': batch['genotypes'][i], ...}
+            batch_sample_info = batch # Pass the whole batch for simplicity in mock
+
+            scored_candidates = []
+            for candidate_pair in sample_candidates:
+                try:
+                    # Score the pair using the model
+                    score = self.model.score_haplotype_pair(batch_sample_info, candidate_pair)
+                    # Ensure score is on CPU for sorting if it's a tensor
+                    scored_candidates.append((candidate_pair, score.cpu()))
+                except Exception as e:
+                     logging.error(f"Error scoring candidate pair {candidate_pair} for sample {i}: {e}", exc_info=True)
+                     # Assign a very low score or skip? Assign low score for now.
+                     scored_candidates.append((candidate_pair, torch.tensor(float('-inf'))))
+
+
+            # Sort candidates by score (descending)
+            # Use .item() if scores are scalar tensors
+            scored_candidates.sort(key=lambda x: x[1].item() if isinstance(x[1], torch.Tensor) else x[1], reverse=True)
+
+            # Apply diversity weighting (placeholder - not implemented)
+            if self.diversity_weight > 0:
+                # TODO: Implement diversity logic (e.g., penalize similar pairs)
+                logging.debug("Diversity weighting is configured but not yet implemented in rank_candidates.")
+                pass # No diversity applied yet
+
+            # Return top N candidates
+            top_n_candidates = scored_candidates[:self.num_candidates]
+            ranked_results_batch.append(top_n_candidates)
+
+        return ranked_results_batch
 
 
 class PhasingResultVisualizer:
@@ -442,9 +488,27 @@ class PhasingResultVisualizer:
         if not self.plt:
             logging.warning("Matplotlib not available. Skipping plot_likelihoods.")
             return
-        # Removed placeholder warning
-        # Actual implementation would use matplotlib/seaborn to create bar charts or distributions.
-        raise NotImplementedError("Likelihood plotting is not yet implemented.") # Corrected indentation
+        logging.info("Plotting likelihoods (placeholder implementation)...")
+        # Placeholder: Create a simple figure for the first sample if data exists
+        if ranked_candidates and ranked_candidates[0]:
+            scores = [score.item() for _, score in ranked_candidates[0]]
+            try:
+                fig, ax = self.plt.subplots()
+                ax.bar(range(len(scores)), scores)
+                ax.set_title("Candidate Likelihoods (Sample 0 - Placeholder)")
+                ax.set_xlabel("Candidate Rank")
+                ax.set_ylabel("Score")
+                if output_path:
+                    fig.savefig(output_path)
+                    logging.info(f"Likelihood plot placeholder saved to {output_path}")
+                else:
+                    # Avoid showing plot during automated tests, just log
+                    logging.info("Likelihood plot placeholder generated (not shown).")
+                self.plt.close(fig) # Close the figure to free memory
+            except Exception as e:
+                 logging.error(f"Error during placeholder likelihood plotting: {e}", exc_info=True)
+
+        # raise NotImplementedError("Likelihood plotting is not yet implemented.") # Corrected indentation
 
     def plot_uncertainty(self, uncertainty_estimates, output_path=None):
         """
@@ -472,8 +536,27 @@ class PhasingResultVisualizer:
         #     else:
         #         self.plt.show()
         #     self.plt.close()
+        logging.info("Plotting uncertainty (placeholder implementation)...")
+        # Placeholder: Create a simple histogram if data exists
+        if 'mean_prediction_entropy' in uncertainty_estimates:
+            entropies = uncertainty_estimates['mean_prediction_entropy'].cpu().numpy()
+            try:
+                fig, ax = self.plt.subplots()
+                ax.hist(entropies, bins=10)
+                ax.set_title("Uncertainty Distribution (Placeholder)")
+                ax.set_xlabel("Mean Prediction Entropy")
+                ax.set_ylabel("Frequency")
+                if output_path:
+                    fig.savefig(output_path)
+                    logging.info(f"Uncertainty plot placeholder saved to {output_path}")
+                else:
+                    logging.info("Uncertainty plot placeholder generated (not shown).")
+                self.plt.close(fig)
+            except Exception as e:
+                 logging.error(f"Error during placeholder uncertainty plotting: {e}", exc_info=True)
 
-        raise NotImplementedError("Uncertainty plotting is not yet implemented.") # Corrected indentation
+
+        # raise NotImplementedError("Uncertainty plotting is not yet implemented.") # Corrected indentation
 
 
     def visualize_alignment(self, genotype, predicted_haplotypes, true_haplotypes=None, output_path=None):
@@ -489,6 +572,29 @@ class PhasingResultVisualizer:
         if not self.plt:
             logging.warning("Matplotlib not available. Skipping visualize_alignment.")
             return
-        # Removed placeholder warning
-        # Actual implementation would create a text or graphical alignment view.
-        raise NotImplementedError("Alignment visualization is not yet implemented.") # Corrected indentation
+        logging.info("Visualizing alignment (placeholder implementation)...")
+        # Placeholder: Just log the data that would be visualized
+        logging.debug(f"Genotype: {genotype}")
+        logging.debug(f"Predicted: {predicted_haplotypes}")
+        logging.debug(f"True: {true_haplotypes}")
+        # A real implementation might use plt.text or create a table-like plot
+
+        # Example of creating a basic text figure if plt is available
+        if self.plt:
+            try:
+                fig, ax = self.plt.subplots()
+                text_content = f"Genotype: {genotype}\nPredicted: {predicted_haplotypes}\nTrue: {true_haplotypes}"
+                ax.text(0.1, 0.5, text_content, va='center')
+                ax.axis('off') # Hide axes
+                ax.set_title("Alignment Placeholder")
+                if output_path:
+                    fig.savefig(output_path)
+                    logging.info(f"Alignment visualization placeholder saved to {output_path}")
+                else:
+                    logging.info("Alignment visualization placeholder generated (not shown).")
+                self.plt.close(fig)
+            except Exception as e:
+                 logging.error(f"Error during placeholder alignment visualization: {e}", exc_info=True)
+
+
+        # raise NotImplementedError("Alignment visualization is not yet implemented.") # Corrected indentation

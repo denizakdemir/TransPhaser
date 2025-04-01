@@ -118,6 +118,74 @@ class TestConstrainedHaplotypeSampler(unittest.TestCase):
         # Check if checker is stored
         self.assertIs(sampler.compatibility_checker, mock_checker)
 
+    def test_sample_constrained_filtering(self):
+        """Test sampling by filtering pre-defined candidates."""
+        checker = HaplotypeCompatibilityChecker()
+        sampler = ConstrainedHaplotypeSampler(compatibility_checker=checker)
+
+        genotype = ['LocusA*01:01', 'LocusA*02:01'] # Heterozygous
+        candidate_pairs = [
+            ('LocusA*01:01', 'LocusA*02:01'), # Valid
+            ('LocusA*01:01', 'LocusA*01:01'), # Invalid (Homozygous mismatch)
+            ('LocusA*02:01', 'LocusA*01:01'), # Valid
+            ('LocusA*03:01', 'LocusA*01:01')  # Invalid (Allele not in genotype)
+        ]
+        num_to_sample = 2
+
+        # Pass candidates via kwargs as suggested by docstring structure
+        # We assume the sampler knows how to interpret 'candidate_pairs' for this test
+        sampled_pairs = sampler.sample(
+            genotype_info=genotype,
+            num_samples=num_to_sample,
+            candidate_pairs=candidate_pairs # Pass candidates via kwargs
+        )
+
+        # Check the number of samples returned
+        self.assertEqual(len(sampled_pairs), num_to_sample)
+
+        # Check if the returned pairs are indeed valid
+        expected_valid_pairs = {
+            ('LocusA*01:01', 'LocusA*02:01'),
+            ('LocusA*02:01', 'LocusA*01:01')
+        }
+        # Convert list of tuples to set of tuples for comparison
+        self.assertEqual(set(sampled_pairs), expected_valid_pairs)
+
+        # Test with fewer samples requested than available valid ones
+        num_to_sample_less = 1
+        sampled_pairs_less = sampler.sample(
+            genotype_info=genotype,
+            num_samples=num_to_sample_less,
+            candidate_pairs=candidate_pairs
+        )
+        self.assertEqual(len(sampled_pairs_less), num_to_sample_less)
+        # Ensure the sampled pair is one of the valid ones
+        self.assertIn(sampled_pairs_less[0], expected_valid_pairs)
+
+        # Test requesting more samples than available valid ones (should return all valid)
+        num_to_sample_more = 5
+        sampled_pairs_more = sampler.sample(
+            genotype_info=genotype,
+            num_samples=num_to_sample_more,
+            candidate_pairs=candidate_pairs
+        )
+        self.assertEqual(len(sampled_pairs_more), len(expected_valid_pairs))
+        self.assertEqual(set(sampled_pairs_more), expected_valid_pairs)
+
+        # Test homozygous case
+        genotype_hom = ['LocusB*01:01', 'LocusB*01:01']
+        candidate_pairs_hom = [
+            ('LocusB*01:01', 'LocusB*01:01'), # Valid
+            ('LocusB*01:01', 'LocusB*02:01'), # Invalid
+        ]
+        sampled_pairs_hom = sampler.sample(
+            genotype_info=genotype_hom,
+            num_samples=1,
+            candidate_pairs=candidate_pairs_hom
+        )
+        self.assertEqual(len(sampled_pairs_hom), 1)
+        self.assertEqual(sampled_pairs_hom[0], ('LocusB*01:01', 'LocusB*01:01'))
+
 
 if __name__ == '__main__':
     unittest.main()
