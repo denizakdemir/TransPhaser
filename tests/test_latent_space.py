@@ -1,9 +1,9 @@
 import unittest
 
 # Placeholder for HaplotypeCompatibilityChecker (already exists)
-from src.compatibility import HaplotypeCompatibilityChecker
+from transphaser.compatibility import HaplotypeCompatibilityChecker # Reverted to src.
 # Placeholder for the class we are about to create
-from src.latent_space import HaplotypeSpaceExplorer
+from transphaser.latent_space import HaplotypeSpaceExplorer # Reverted to src.
 
 class TestHaplotypeSpaceExplorer(unittest.TestCase):
 

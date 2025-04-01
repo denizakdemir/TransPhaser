@@ -1,13 +1,14 @@
 import unittest
 import torch
 import torch.nn as nn
+import json # Added json import
 
 # Placeholder for the class we are about to create
-from src.decoder import HaplotypeDecoderTransformer
+from transphaser.decoder import HaplotypeDecoderTransformer # Reverted to src.
 # Import embedding classes needed for tests
-from src.embeddings import AlleleEmbedding, LocusPositionalEmbedding
+from transphaser.embeddings import AlleleEmbedding, LocusPositionalEmbedding # Reverted to src.
 # Import AlleleTokenizer
-from src.data_preprocessing import AlleleTokenizer
+from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
 
 # Minimal placeholder for config
 def get_mock_decoder_config():
@@ -28,8 +29,9 @@ def get_mock_decoder_config():
         "ff_dim": 128,
         "dropout": 0.1,
         "max_seq_len": 10, # Max length for generation (used by Autoregressive), not internal seq len
-        "covariate_dim": 5 # Example input covariate dim
+        "covariate_dim": 5, # Example input covariate dim
         # Add other necessary config params based on implementation
+        "latent_dim": 32 # Added latent_dim for numerical stability test
     }
 
 class TestHaplotypeDecoderTransformer(unittest.TestCase):
@@ -109,7 +111,7 @@ class TestHaplotypeDecoderTransformer(unittest.TestCase):
         """Test that the forward pass does not produce NaN or Inf values."""
         config = get_mock_decoder_config()
         # Add latent_dim to config for the test
-        config["latent_dim"] = 32
+        # config["latent_dim"] = 32 # Already added in get_mock_decoder_config
         decoder = HaplotypeDecoderTransformer(config)
 
         batch_size = 4

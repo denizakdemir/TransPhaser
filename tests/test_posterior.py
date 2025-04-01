@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 # Placeholder for the class we are about to create
-from src.posterior import HaplotypePosteriorDistribution
+from transphaser.posterior import HaplotypePosteriorDistribution # Reverted to src.
 
 class TestHaplotypePosteriorDistribution(unittest.TestCase):
 

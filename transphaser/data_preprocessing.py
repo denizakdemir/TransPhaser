@@ -343,7 +343,7 @@ class HLADataset(Dataset):
     PyTorch Dataset for HLA phasing data.
     Handles tokenization of genotypes and optionally target haplotypes.
     """
-    def __init__(self, genotypes, covariates, tokenizer, loci_order, phased_haplotypes=None):
+    def __init__(self, genotypes, covariates, tokenizer, loci_order, phased_haplotypes=None, sample_ids=None): # Added sample_ids
         """
         Initializes the dataset.
 
@@ -359,17 +359,22 @@ class HLADataset(Dataset):
                                                 Each string contains alleles separated by '_', corresponding
                                                 to loci_order. Example: ['A*01:01_B*07:02', ...].
                                                 Required for training if model needs target sequences. Defaults to None.
+            sample_ids (list, optional): List of original sample identifiers. Defaults to None.
         """
         if len(genotypes) != len(covariates):
             raise ValueError("Number of samples in genotypes and covariates must match.")
         if phased_haplotypes is not None and len(genotypes) != len(phased_haplotypes):
             raise ValueError("Number of samples in genotypes and phased_haplotypes must match.")
+        if sample_ids is not None and len(genotypes) != len(sample_ids): # Added check for sample_ids
+            raise ValueError("Number of samples in genotypes and sample_ids must match.")
+
 
         self.genotypes = genotypes
         self.covariates = covariates
         self.tokenizer = tokenizer
         self.loci_order = loci_order
         self.phased_haplotypes = phased_haplotypes # Store phased data if provided
+        self.sample_ids = sample_ids # Store sample IDs if provided
 
         # Get special token IDs once
         self.bos_token_id = self.tokenizer.special_tokens.get("BOS", 2)
@@ -391,7 +396,7 @@ class HLADataset(Dataset):
             dict: A dictionary containing:
                   'genotype_tokens': torch.Tensor of tokenized genotype alleles (long). Shape (num_loci * 2,).
                   'covariates': torch.Tensor of encoded covariates (float). Shape (num_features,).
-                  'sample_index': The original index of the sample (int).
+                  'sample_id': The original identifier of the sample (e.g., string from input data).
                   'target_haplotype_tokens' (optional): torch.Tensor of tokenized target haplotype
                                                         alleles (long) including BOS/EOS. Shape (num_loci + 2,).
                                                         Present only if phased_haplotypes were provided.
@@ -432,7 +437,8 @@ class HLADataset(Dataset):
         output_dict = {
             'genotype_tokens': genotype_tokens_tensor,
             'covariates': covariates_tensor,
-            'sample_index': idx
+            # Return sample_id if available, otherwise return index
+            'sample_id': self.sample_ids[idx] if self.sample_ids is not None else idx
         }
 
         # Add target haplotype tokens if phased data is available
@@ -546,11 +552,15 @@ if __name__ == '__main__':
     if parsed_genotypes is not None and encoded_covariates_np is not None and tokenizer is not None:
         try:
             # Use the same locus order as defined for the parser
+            # Pass sample IDs from the original dataframe
+            sample_ids_list = df['SampleID'].tolist() if 'SampleID' in df.columns else None
+
             hla_dataset = HLADataset(
                 genotypes=parsed_genotypes,
                 covariates=encoded_covariates_np,
                 tokenizer=tokenizer,
-                loci_order=locus_cols # Use the order from parser
+                loci_order=locus_cols, # Use the order from parser
+                sample_ids=sample_ids_list # Pass the list of IDs
             )
             print(f"\nHLADataset created successfully with {len(hla_dataset)} samples.")
 
@@ -573,7 +583,7 @@ if __name__ == '__main__':
                 for batch in dataloader:
                     print(" Batch Genotype Tokens Shape:", batch['genotype_tokens'].shape)
                     print(" Batch Covariates Shape:", batch['covariates'].shape)
-                    print(" Batch Sample Indices:", batch['sample_index'])
+                    print(" Batch Sample IDs:", batch['sample_id']) # Changed from sample_index
                     print(" Batch Genotype Tokens (first sample):\n", batch['genotype_tokens'][0])
                     print(" Batch Covariates (first sample):\n", batch['covariates'][0])
                     break # Show only first batch

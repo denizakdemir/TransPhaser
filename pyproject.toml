@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transphaser"
+version = "0.1.0"
+description = "A Transformer-based model for HLA phasing."
+readme = "README.md"
+requires-python = ">=3.8"
+# Add dependencies from requirements.txt if needed for distribution,
+# but not strictly necessary for fixing the import issue for tests.
+# dependencies = [
+#     "torch>=1.9.0",
+#     "pandas>=1.3.0",
+#     "numpy>=1.20.0",
+#     "scikit-learn>=1.0.0",
+#     # Add other dependencies from requirements.txt
+# ]
+
+[tool.setuptools.packages.find]
+# Setuptools will automatically find the 'transphaser' package in the root
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]

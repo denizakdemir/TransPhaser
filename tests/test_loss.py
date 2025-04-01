@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 # Placeholder for the classes we are about to create
-from src.loss import ELBOLoss, KLAnnealingScheduler
+from transphaser.loss import ELBOLoss, KLAnnealingScheduler # Reverted to src.
 
 class TestELBOLoss(unittest.TestCase):
 

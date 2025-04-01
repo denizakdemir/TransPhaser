@@ -1,13 +1,14 @@
 import unittest
 import torch
-import torch.nn as nn
+import pytest
+from unittest.mock import MagicMock, patch
+import torch.nn as nn # Added nn import
 
-# Import necessary components (even if mocked)
-from src.decoder import HaplotypeDecoderTransformer
-from src.data_preprocessing import AlleleTokenizer
+from transphaser.decoder import HaplotypeDecoderTransformer # Reverted to src.
+from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
 
 # Placeholder for the class we are about to create
-from src.autoregressive import AutoregressiveHaplotypeDecoder
+from transphaser.autoregressive import AutoregressiveHaplotypeDecoder # Reverted to src.
 
 # --- Mocks ---
 class MockDecoderTransformer(nn.Module):

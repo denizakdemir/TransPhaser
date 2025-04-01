@@ -1,8 +1,8 @@
 import unittest
 import json
-from src.result_formatter import PhasingResultFormatter # Will create this file next
+from transphaser.result_formatter import PhasingResultFormatter # Reverted to src.
 # Assuming AlleleTokenizer exists and can be mocked or instantiated simply
-from src.data_preprocessing import AlleleTokenizer
+from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
 
 class TestPhasingResultFormatter(unittest.TestCase):
 

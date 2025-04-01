@@ -4,27 +4,28 @@ import torch # Added torch import
 import torch.nn as nn # Added nn import
 
 # Placeholder for AlleleTokenizer (needed for mock)
-from src.data_preprocessing import AlleleTokenizer
+from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
 # Placeholder for the classes we are about to create
-from src.missing_data import MissingDataDetector, MissingDataMarginalizer, AlleleImputer
+from transphaser.missing_data import MissingDataDetector, MissingDataMarginalizer, AlleleImputer # Reverted to src.
 
 # --- Mocks ---
-class MockAlleleTokenizer:
-    def __init__(self):
-        # Define some special tokens, including UNK which might represent missing
-        self.special_tokens = {"PAD": 0, "UNK": 1, "BOS": 2, "EOS": 3}
-        # Assume UNK token string is 'UNK'
-        self.unk_token_string = 'UNK'
-        print("MockAlleleTokenizer Initialized for missing data tests")
-
-    def tokenize(self, locus, allele):
-        # Simple mock: return UNK ID if allele is None or specific missing markers
-        if allele is None or allele == self.unk_token_string or allele == '':
-            return self.special_tokens['UNK']
-        # Otherwise return a dummy ID (not UNK)
-        return 10 # Dummy ID for non-missing
-
-    # Add other methods if needed by MissingDataDetector init or methods
+# Use the actual AlleleTokenizer for initialization tests
+# class MockAlleleTokenizer:
+#     def __init__(self):
+#         # Define some special tokens, including UNK which might represent missing
+#         self.special_tokens = {"PAD": 0, "UNK": 1, "BOS": 2, "EOS": 3}
+#         # Assume UNK token string is 'UNK'
+#         self.unk_token_string = 'UNK'
+#         print("MockAlleleTokenizer Initialized for missing data tests")
+#
+#     def tokenize(self, locus, allele):
+#         # Simple mock: return UNK ID if allele is None or specific missing markers
+#         if allele is None or allele == self.unk_token_string or allele == '':
+#             return self.special_tokens['UNK']
+#         # Otherwise return a dummy ID (not UNK)
+#         return 10 # Dummy ID for non-missing
+#
+#     # Add other methods if needed by MissingDataDetector init or methods
 
 class MockModel(nn.Module):
     """Minimal mock model needed for Marginalizer/Imputer init."""
@@ -39,14 +40,15 @@ class TestMissingDataDetector(unittest.TestCase):
 
     def test_initialization(self):
         """Test MissingDataDetector initialization."""
-        mock_tokenizer = MockAlleleTokenizer()
+        # Use the actual tokenizer
+        real_tokenizer = AlleleTokenizer()
 
-        detector = MissingDataDetector(tokenizer=mock_tokenizer)
+        detector = MissingDataDetector(tokenizer=real_tokenizer)
 
         # Check attributes
-        self.assertIs(detector.tokenizer, mock_tokenizer)
+        self.assertIs(detector.tokenizer, real_tokenizer)
         # Check if UNK token ID/string is stored correctly if needed
-        self.assertEqual(detector.unk_token_id, mock_tokenizer.special_tokens['UNK'])
+        self.assertEqual(detector.unk_token_id, real_tokenizer.special_tokens['UNK'])
 
 
 class TestMissingDataMarginalizer(unittest.TestCase):

@@ -6,7 +6,7 @@ import shutil
 from unittest.mock import patch, MagicMock # For mocking file I/O and plotting
 
 # Assuming the class will be created in src/performance_reporter.py
-from src.performance_reporter import PerformanceReporter
+from transphaser.performance_reporter import PerformanceReporter # Reverted to src.
 
 class TestPerformanceReporter(unittest.TestCase):
 

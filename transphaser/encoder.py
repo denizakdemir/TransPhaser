@@ -3,7 +3,7 @@ import torch.nn as nn
 import logging
 
 # Import embedding classes
-from src.embeddings import AlleleEmbedding, LocusPositionalEmbedding
+from transphaser.embeddings import AlleleEmbedding, LocusPositionalEmbedding
 
 class GenotypeEncoderTransformer(nn.Module):
     """

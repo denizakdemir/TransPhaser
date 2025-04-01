@@ -7,9 +7,9 @@ import pandas as pd
 import torch
 
 # Assuming the runner class will be in src/runner.py
-from src.runner import HLAPhasingRunner
+from transphaser.runner import HLAPhasingRunner # Reverted to src.
 # Import config for testing initialization
-from src.config import HLAPhasingConfig
+from transphaser.config import HLAPhasingConfig # Reverted to src.
 
 # Mock necessary components that the runner interacts with
 # We don't need their actual logic, just need to check if they are called correctly
@@ -44,10 +44,11 @@ mock_reporter_instance = MagicMock()
 # Configure mock dataset length (adjust if needed for train/val)
 mock_dataset_instance.__len__.return_value = 1 # Set length for val_dataset mock
 # Configure mock dataloader to be iterable and yield a sample batch (size 1 for val)
+# Ensure it yields 'sample_id' consistent with HLADataset changes
 mock_dataloader_instance.__iter__.return_value = iter([{
     'genotype_tokens': torch.tensor([[8, 9]], dtype=torch.long), # Batch size 1
     'covariates': torch.tensor([[0.2, 0.6]], dtype=torch.float32),
-    'sample_index': torch.tensor([0]) # Index 0 for the single sample in val_df
+    'sample_id': ['S3'] # Use sample ID 'S3' corresponding to dummy_val_df
 }])
 
 
@@ -131,10 +132,10 @@ class TestHLAPhasingRunner(unittest.TestCase):
         MockPerformanceReporter.reset_mock()
         # Patch os.makedirs specifically where it's called in runner.py
         # Patch PerformanceReporter specifically where it's imported in runner.py
-        with patch('src.runner.os.makedirs') as mock_runner_makedirs, \
-             patch('src.runner.PerformanceReporter', MockPerformanceReporter) as mock_runner_reporter_cls:
+        with patch('transphaser.runner.os.makedirs') as mock_runner_makedirs, \
+             patch('transphaser.runner.PerformanceReporter', MockPerformanceReporter) as mock_runner_reporter_cls:
             # Need to import the runner *inside* the test for patches to apply correctly
-            from src.runner import HLAPhasingRunner
+            from transphaser.runner import HLAPhasingRunner
             runner = HLAPhasingRunner(config=self.config)
             self.assertEqual(runner.config, self.config)
             # Check initialization calls using the correctly scoped mocks
@@ -149,27 +150,27 @@ class TestHLAPhasingRunner(unittest.TestCase):
         dummy_val_df = pd.DataFrame({'IndividualID': ['S3'], 'HLA-A': ['A*02:01/A*03:01'], 'Cov1': [1]})
         # Use context managers for patching
         with patch('pandas.read_csv') as mock_read_csv, \
-             patch('src.runner.train_test_split', return_value=(dummy_train_df, dummy_val_df)) as mock_tts, \
-             patch('src.runner.GenotypeDataParser', MockGenotypeDataParser) as mock_parser_cls, \
-             patch('src.runner.AlleleTokenizer', MockAlleleTokenizer) as mock_tokenizer_cls, \
-             patch('src.runner.CovariateEncoder', MockCovariateEncoder) as mock_cov_encoder_cls, \
-             patch('src.runner.HLADataset', MockHLADataset) as mock_dataset_cls, \
-             patch('src.runner.DataLoader', MockDataLoader) as mock_loader_cls, \
-             patch('src.runner.HLAPhasingModel', MockHLAPhasingModel) as mock_model_cls, \
-             patch('src.runner.ELBOLoss', MockELBOLoss) as mock_loss_cls, \
-             patch('src.runner.KLAnnealingScheduler', MockKLAnnealingScheduler) as mock_kl_cls, \
-             patch('src.runner.Adam', MockOptimizer) as mock_optimizer_cls, \
-             patch('src.runner.HLAPhasingTrainer', MockHLAPhasingTrainer) as mock_trainer_cls, \
-             patch('src.runner.HLAPhasingMetrics', MockHLAPhasingMetrics) as mock_metrics_cls, \
-             patch('src.runner.PerformanceReporter', MockPerformanceReporter) as mock_reporter_cls, \
+             patch('transphaser.runner.train_test_split', return_value=(dummy_train_df, dummy_val_df)) as mock_tts, \
+             patch('transphaser.runner.GenotypeDataParser', MockGenotypeDataParser) as mock_parser_cls, \
+             patch('transphaser.runner.AlleleTokenizer', MockAlleleTokenizer) as mock_tokenizer_cls, \
+             patch('transphaser.runner.CovariateEncoder', MockCovariateEncoder) as mock_cov_encoder_cls, \
+             patch('transphaser.runner.HLADataset', MockHLADataset) as mock_dataset_cls, \
+             patch('transphaser.runner.DataLoader', MockDataLoader) as mock_loader_cls, \
+             patch('transphaser.runner.HLAPhasingModel', MockHLAPhasingModel) as mock_model_cls, \
+             patch('transphaser.runner.ELBOLoss', MockELBOLoss) as mock_loss_cls, \
+             patch('transphaser.runner.KLAnnealingScheduler', MockKLAnnealingScheduler) as mock_kl_cls, \
+             patch('transphaser.runner.Adam', MockOptimizer) as mock_optimizer_cls, \
+             patch('transphaser.runner.HLAPhasingTrainer', MockHLAPhasingTrainer) as mock_trainer_cls, \
+             patch('transphaser.runner.HLAPhasingMetrics', MockHLAPhasingMetrics) as mock_metrics_cls, \
+             patch('transphaser.runner.PerformanceReporter', MockPerformanceReporter) as mock_reporter_cls, \
              patch('torch.save') as mock_torch_save, \
-             patch('src.runner.os.makedirs') as mock_runner_makedirs: # Patch os.makedirs specifically in runner
+             patch('transphaser.runner.os.makedirs') as mock_runner_makedirs: # Patch os.makedirs specifically in runner
 
             # Configure mock tokenizer detokenize method inside the 'with' block
             mock_tokenizer_cls.return_value.detokenize.return_value = "A*01:01" # Return a dummy allele string
 
             # Need to import the runner *inside* the test for patches to apply correctly
-            from src.runner import HLAPhasingRunner
+            from transphaser.runner import HLAPhasingRunner
             # Mock read_csv to return dummy dataframes (configure *inside* the with block)
             mock_read_csv.side_effect = [
                 pd.DataFrame({'IndividualID': ['S1', 'S2', 'S3'], 'HLA-A': ['A*01:01/A*02:01', 'A*01:01/A*01:01', 'A*02:01/A*03:01'], 'Cov1': [1, 2, 1]}), # unphased

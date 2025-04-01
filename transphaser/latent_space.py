@@ -1,5 +1,5 @@
-# Placeholder imports - will likely need compatibility checker, maybe model/tokenizer later
-# from .compatibility import HaplotypeCompatibilityChecker
+# Import necessary components
+from transphaser.compatibility import HaplotypeCompatibilityChecker
 
 class HaplotypeSpaceExplorer:
     """
@@ -16,9 +16,15 @@ class HaplotypeSpaceExplorer:
             sampling_temperature (float): Controls the randomness of sampling.
                                           Defaults to 1.0.
         """
+        # Add type check for compatibility_checker
+        if not isinstance(compatibility_checker, HaplotypeCompatibilityChecker):
+             raise TypeError("compatibility_checker must be an instance of HaplotypeCompatibilityChecker")
+        if not isinstance(sampling_temperature, (int, float)) or sampling_temperature <= 0:
+             raise ValueError("sampling_temperature must be a positive number.")
+
         self.compatibility_checker = compatibility_checker
         self.sampling_temperature = sampling_temperature
-        print("Placeholder: HaplotypeSpaceExplorer initialized.")
+        # Removed placeholder print
 
     def sample(self, genotype, num_samples=1, strategy='greedy'):
         """
@@ -33,16 +39,10 @@ class HaplotypeSpaceExplorer:
             list: A list of sampled haplotype pairs, where each pair is a tuple
                   (haplotype1, haplotype2).
         """
-        # Placeholder implementation
-        print(f"Placeholder: Sampling {num_samples} haplotypes for {genotype} using {strategy} strategy.")
+        # Removed placeholder implementation
         # Actual implementation would involve:
         # 1. Potentially using a model (decoder) to propose candidates.
         # 2. Using self.compatibility_checker to validate candidates.
         # 3. Applying sampling strategies (beam search, nucleus, etc.) with temperature.
-        # For now, return a dummy valid pair if possible, or empty list.
-        if self.compatibility_checker.check(genotype, genotype[0], genotype[1]):
-             return [(genotype[0], genotype[1])] * num_samples # Dummy valid sample
-        else:
-             # This case shouldn't happen if genotype comes from real data
-             # but return empty list as a fallback placeholder
-             return []
+
+        raise NotImplementedError(f"Haplotype sampling strategy '{strategy}' is not yet implemented.")

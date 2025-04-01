@@ -7,7 +7,7 @@ import torch # Add torch import
 from torch.utils.data import Dataset, DataLoader # Add Dataset and DataLoader import
 
 # Placeholder for the classes we are about to create
-from src.data_preprocessing import GenotypeDataParser, AlleleTokenizer, CovariateEncoder, HLADataset # Added HLADataset
+from transphaser.data_preprocessing import GenotypeDataParser, AlleleTokenizer, CovariateEncoder, HLADataset # Reverted to src.
 
 class TestGenotypeDataParser(unittest.TestCase):
 
@@ -445,6 +445,8 @@ class TestHLADataset(unittest.TestCase):
         ]
         # Create sample covariate data (already encoded)
         self.encoded_covariates = np.array([[0.1, 0.9, -1.0], [0.8, 0.2, 1.0]], dtype=np.float32)
+        # Add sample IDs
+        self.sample_ids = ['S1', 'S2']
 
         self.mock_tokenizer = MockAlleleTokenizer()
         # self.mock_encoder = MockCovariateEncoder() # Not needed directly if covariates are pre-encoded
@@ -455,7 +457,8 @@ class TestHLADataset(unittest.TestCase):
              genotypes=self.parsed_genotypes,
              covariates=self.encoded_covariates,
              tokenizer=self.mock_tokenizer,
-             loci_order=['HLA-A', 'HLA-B'] # Specify locus order
+             loci_order=['HLA-A', 'HLA-B'], # Specify locus order
+             sample_ids=self.sample_ids # Pass sample IDs
          )
          self.assertEqual(len(dataset), 2) # Should match number of samples
 
@@ -465,7 +468,8 @@ class TestHLADataset(unittest.TestCase):
              genotypes=self.parsed_genotypes,
              covariates=self.encoded_covariates,
              tokenizer=self.mock_tokenizer,
-             loci_order=['HLA-A', 'HLA-B']
+             loci_order=['HLA-A', 'HLA-B'],
+             sample_ids=self.sample_ids # Pass sample IDs
          )
 
          # Get item for index 0
@@ -480,7 +484,8 @@ class TestHLADataset(unittest.TestCase):
 
          self.assertTrue(torch.equal(item0['genotype_tokens'], expected_genotype_tokens0))
          self.assertTrue(torch.equal(item0['covariates'], expected_covariates0))
-         self.assertEqual(item0['sample_index'], 0) # Check sample index
+         # Check sample_id (should be 'S1' for index 0)
+         self.assertEqual(item0['sample_id'], 'S1')
 
          # Get item for index 1
          item1 = dataset[1]
@@ -493,7 +498,8 @@ class TestHLADataset(unittest.TestCase):
 
          self.assertTrue(torch.equal(item1['genotype_tokens'], expected_genotype_tokens1))
          self.assertTrue(torch.equal(item1['covariates'], expected_covariates1))
-         self.assertEqual(item1['sample_index'], 1)
+         # Check sample_id (should be 'S2' for index 1)
+         self.assertEqual(item1['sample_id'], 'S2')
 
 
 if __name__ == '__main__':

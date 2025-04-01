@@ -4,8 +4,7 @@ import logging
 import torch # Added torch import
 import torch.nn as nn # Added nn import
 
-# Placeholder import
-# from .data_preprocessing import AlleleTokenizer
+from transphaser.data_preprocessing import AlleleTokenizer # Import AlleleTokenizer
 
 class MissingDataDetector:
     """
@@ -19,10 +18,9 @@ class MissingDataDetector:
         Args:
             tokenizer: An initialized AlleleTokenizer instance.
         """
-        # Need to import AlleleTokenizer if not done globally
-        # from .data_preprocessing import AlleleTokenizer
-        # if not isinstance(tokenizer, AlleleTokenizer):
-        #     raise TypeError("tokenizer must be an instance of AlleleTokenizer")
+        # Uncommented and corrected the type check
+        if not isinstance(tokenizer, AlleleTokenizer): # Added comma
+             raise TypeError("tokenizer must be an instance of AlleleTokenizer")
 
         self.tokenizer = tokenizer
         # Store the UNK token ID for easy access
@@ -30,7 +28,7 @@ class MissingDataDetector:
         if self.unk_token_id is None:
             logging.warning("UNK token not found in tokenizer special tokens. Missing data detection might be impaired.")
 
-        print("Placeholder: MissingDataDetector initialized.")
+        # Removed placeholder print
 
     def detect(self, parsed_genotypes, loci_order):
         """
@@ -104,7 +102,7 @@ class MissingDataMarginalizer:
 
         self.model = model
         self.sampling_iterations = sampling_iterations
-        print("Placeholder: MissingDataMarginalizer initialized.")
+        # Removed placeholder print
 
     def marginalize_likelihood(self, batch_with_missing):
         """
@@ -127,8 +125,7 @@ class MissingDataMarginalizer:
         # 4. Averaging the results (e.g., using importance weights if applicable).
         # This is complex and depends heavily on the model structure and chosen technique.
 
-        # Dummy return value
-        return torch.tensor(-100.0) # Example marginal ELBO
+        raise NotImplementedError("Marginal likelihood calculation for missing data is not yet implemented.")
 
     def impute(self, batch_with_missing):
         """
@@ -149,8 +146,7 @@ class MissingDataMarginalizer:
         #    for missing values conditional on observed values.
         # 3. Filling missing entries based on a chosen strategy (e.g., mode, sample).
 
-        # Dummy return value - just return input for now
-        return batch_with_missing
+        raise NotImplementedError("Imputation within MissingDataMarginalizer is not yet implemented.")
 
 
 class AlleleImputer:
@@ -175,7 +171,7 @@ class AlleleImputer:
 
         self.model = model
         self.imputation_strategy = imputation_strategy
-        print("Placeholder: AlleleImputer initialized.")
+        # Removed placeholder print
 
     def impute_alleles(self, batch_with_missing):
         """
@@ -199,5 +195,4 @@ class AlleleImputer:
         # 4. If strategy='sampling', sample from the predicted distribution.
         # 5. Replacing the UNK tokens with the imputed allele tokens.
 
-        # Dummy return value - just return input for now
-        return batch_with_missing
+        raise NotImplementedError("Allele imputation is not yet implemented.")

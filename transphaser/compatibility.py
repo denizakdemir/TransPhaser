@@ -52,12 +52,25 @@ class HaplotypeCompatibilityChecker:
         # potentially checking against special 'UNK' or 'PAD' tokens if used,
         # or allowing partial matches based on the self.allow_imputation flag.
 
-    # Potential future methods for batch checking or mask generation
-    # def check_batch(self, genotypes, haplotype1_batch, haplotype2_batch):
-    #     pass
-    #
-    # def generate_compatibility_mask(self, ...):
-    #     pass
+    def check_batch(self, genotypes_batch, haplotype1_batch, haplotype2_batch):
+        """Checks compatibility for a batch of genotypes and haplotype pairs."""
+        # Basic implementation: iterate and call self.check
+        results = []
+        for genotype, hap1, hap2 in zip(genotypes_batch, haplotype1_batch, haplotype2_batch):
+            results.append(self.check(genotype, hap1, hap2))
+        return results
+
+    def generate_compatibility_mask(self, genotype_tokens, vocab_size):
+        """Generates a mask indicating valid alleles based on genotype tokens."""
+        # Placeholder implementation - requires specific logic based on tokenization
+        # and how compatibility should restrict the vocabulary.
+        logging.warning("generate_compatibility_mask is not fully implemented.")
+        # Example: Allow only tokens present in the genotype?
+        mask = torch.zeros(genotype_tokens.shape[0], vocab_size, dtype=torch.bool, device=genotype_tokens.device)
+        # Logic to populate the mask based on genotype_tokens would go here.
+        # For now, return a mask allowing everything (or nothing, depending on desired default)
+        mask.fill_(True) # Allow all tokens as a placeholder
+        return mask
 
 
 class HLACompatibilityRules:
@@ -77,7 +90,7 @@ class HLACompatibilityRules:
                                 Defaults to True.
         """
         self.strict_mode = strict_mode
-        print("Placeholder: HLACompatibilityRules initialized.")
+        logging.debug("HLACompatibilityRules initialized.")
 
     def get_valid_haplotype_pairs(self, genotype):
         """
@@ -134,7 +147,7 @@ class CompatibilityMaskGenerator:
 
         self.tokenizer = tokenizer
         self.compatibility_rules = compatibility_rules
-        print("Placeholder: CompatibilityMaskGenerator initialized.")
+        logging.debug("CompatibilityMaskGenerator initialized.")
 
     def generate_mask(self, locus, genotype, partial_haplotype1=None):
         """
@@ -176,8 +189,10 @@ class CompatibilityMaskGenerator:
             else:
                 # This case implies the partial_haplotype1 was somehow incompatible
                 # with the genotype. Depending on strictness, either raise error
-                # or allow nothing/UNK. Let's allow nothing for now.
-                pass
+                # This case implies the partial_haplotype1 was somehow incompatible
+                # with the genotype. Depending on strictness, either raise error
+                # or allow nothing/UNK. Allowing nothing by default.
+                logging.warning(f"Incompatible partial haplotype '{partial_haplotype1}' provided for genotype {genotype} at locus {locus}.")
 
         # Add special tokens if they should always be allowed (e.g., EOS)
         # allowed_alleles.add("EOS") # Example

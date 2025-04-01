@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Optional, List
 
 # Import sub-modules
-from src.embeddings import AlleleEmbedding, LocusPositionalEmbedding # Import LocusPositionalEmbedding
+from transphaser.embeddings import AlleleEmbedding, LocusPositionalEmbedding # Import LocusPositionalEmbedding
 
 class HaplotypeDecoderTransformer(nn.Module):
     """

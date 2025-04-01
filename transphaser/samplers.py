@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
 import math
+import logging # Added for logging
 
-# Placeholder import
-# from .compatibility import HaplotypeCompatibilityChecker
+from transphaser.compatibility import HaplotypeCompatibilityChecker # Import HaplotypeCompatibilityChecker
 
 class GumbelSoftmaxSampler:
     """
@@ -34,7 +34,7 @@ class GumbelSoftmaxSampler:
         self.anneal_rate = anneal_rate
         self.current_temperature = initial_temperature
         self.step = 0
-        print("Placeholder: GumbelSoftmaxSampler initialized.")
+        logging.debug("GumbelSoftmaxSampler initialized.")
 
     def anneal_temperature(self):
         """Updates the current temperature based on the annealing schedule."""
@@ -61,7 +61,7 @@ class GumbelSoftmaxSampler:
             torch.Tensor: Sampled tensor. Shape (..., num_categories). If hard=True,
                           it's a one-hot tensor; otherwise, it's a relaxed sample.
         """
-        print(f"Placeholder: Gumbel-Softmax sampling (hard={hard}). Temp={self.current_temperature:.4f}")
+        logging.debug(f"Gumbel-Softmax sampling (hard={hard}). Temp={self.current_temperature:.4f}")
         # Use torch.nn.functional.gumbel_softmax
         y_soft = F.gumbel_softmax(logits, tau=self.current_temperature, hard=hard, eps=1e-10, dim=-1)
 
@@ -84,13 +84,12 @@ class ConstrainedHaplotypeSampler:
         Args:
             compatibility_checker: An instance of HaplotypeCompatibilityChecker.
         """
-        # Need to import HaplotypeCompatibilityChecker if not done globally
-        # from .compatibility import HaplotypeCompatibilityChecker
-        # if not isinstance(compatibility_checker, HaplotypeCompatibilityChecker):
-        #     raise TypeError("compatibility_checker must be an instance of HaplotypeCompatibilityChecker")
+        # Uncommented and corrected the type check
+        if not isinstance(compatibility_checker, HaplotypeCompatibilityChecker):
+             raise TypeError("compatibility_checker must be an instance of HaplotypeCompatibilityChecker")
 
         self.compatibility_checker = compatibility_checker
-        print("Placeholder: ConstrainedHaplotypeSampler initialized.")
+        logging.debug("ConstrainedHaplotypeSampler initialized.")
 
     def sample(self, genotype_info, num_samples=1, **kwargs):
         """
@@ -107,13 +106,11 @@ class ConstrainedHaplotypeSampler:
             list: A list of sampled compatible haplotype pairs. The format of pairs
                   depends on the representation (e.g., tuples of allele strings, tensors of tokens).
         """
-        # Placeholder implementation
-        print(f"Placeholder: Constrained sampling for genotype {genotype_info}.")
+        # Removed placeholder warning
         # Actual implementation would involve:
         # 1. Generating candidate haplotype pairs (e.g., from a model posterior).
         # 2. Using self.compatibility_checker.check() to filter or mask invalid pairs.
         # 3. Returning num_samples valid pairs.
         # This might involve rejection sampling or more sophisticated constrained decoding/sampling.
 
-        # Dummy return value
-        return [("Hap1_placeholder", "Hap2_placeholder")] * num_samples
+        raise NotImplementedError("Constrained haplotype sampling is not yet implemented.")

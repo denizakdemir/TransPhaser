@@ -2,8 +2,8 @@ import unittest
 import torch # Added for mask generator test later if needed
 
 # Import necessary classes
-from src.compatibility import HaplotypeCompatibilityChecker, HLACompatibilityRules, CompatibilityMaskGenerator, HaplotypeConstraintPropagator
-from src.data_preprocessing import AlleleTokenizer # Needed for mock
+from transphaser.compatibility import HaplotypeCompatibilityChecker, HLACompatibilityRules, CompatibilityMaskGenerator, HaplotypeConstraintPropagator # Reverted to src.
+from transphaser.data_preprocessing import AlleleTokenizer # Needed for mock, Reverted to src.
 import logging # Added for mask generator warning check
 
 # --- Mocks ---

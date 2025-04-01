@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 
 # Placeholder for the class we are about to create
-from src.encoder import GenotypeEncoderTransformer
+from transphaser.encoder import GenotypeEncoderTransformer # Reverted to src.
 # Import embedding classes needed for tests
-from src.embeddings import AlleleEmbedding # Added import
+from transphaser.embeddings import AlleleEmbedding # Reverted to src.
 
 # Minimal placeholder for config (can reuse decoder's for now if similar)
 def get_mock_encoder_config():

@@ -3,17 +3,18 @@ import torch # Likely needed for metric calculations
 import torch.nn as nn # Added for mock model
 
 # Placeholder for AlleleTokenizer (needed for mock)
-from src.data_preprocessing import AlleleTokenizer
+from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
 # Placeholder for the classes we are about to create
-from src.evaluation import HLAPhasingMetrics, PhasingUncertaintyEstimator, HaplotypeCandidateRanker, PhasingResultVisualizer
+from transphaser.evaluation import HLAPhasingMetrics, PhasingUncertaintyEstimator, HaplotypeCandidateRanker, PhasingResultVisualizer # Reverted to src.
 
 # --- Mocks ---
-class MockAlleleTokenizer:
-    def __init__(self):
-        # Define some special tokens
-        self.special_tokens = {"PAD": 0, "UNK": 1, "BOS": 2, "EOS": 3}
-        print("MockAlleleTokenizer Initialized for evaluation tests")
-    # Add methods like tokenize/detokenize if needed by HLAPhasingMetrics
+# Use the actual AlleleTokenizer for initialization tests
+# class MockAlleleTokenizer:
+#     def __init__(self):
+#         # Define some special tokens
+#         self.special_tokens = {"PAD": 0, "UNK": 1, "BOS": 2, "EOS": 3}
+#         print("MockAlleleTokenizer Initialized for evaluation tests")
+#     # Add methods like tokenize/detokenize if needed by HLAPhasingMetrics
 
 class MockModel(nn.Module):
     """Minimal mock model needed for UncertaintyEstimator/Ranker init."""
@@ -28,12 +29,13 @@ class TestHLAPhasingMetrics(unittest.TestCase):
 
     def test_initialization(self):
         """Test HLAPhasingMetrics initialization."""
-        mock_tokenizer = MockAlleleTokenizer()
+        # Use the actual tokenizer
+        real_tokenizer = AlleleTokenizer()
 
-        metrics_calculator = HLAPhasingMetrics(tokenizer=mock_tokenizer)
+        metrics_calculator = HLAPhasingMetrics(tokenizer=real_tokenizer)
 
         # Check attributes
-        self.assertIs(metrics_calculator.tokenizer, mock_tokenizer)
+        self.assertIs(metrics_calculator.tokenizer, real_tokenizer)
         # Add checks for other attributes if any (e.g., metric storage)
 
 
@@ -87,13 +89,14 @@ class TestPhasingResultVisualizer(unittest.TestCase):
 
     def test_initialization(self):
         """Test PhasingResultVisualizer initialization."""
-        mock_tokenizer = MockAlleleTokenizer()
+        # Use the actual tokenizer
+        real_tokenizer = AlleleTokenizer()
 
         # This will fail until the class is defined
-        visualizer = PhasingResultVisualizer(tokenizer=mock_tokenizer)
+        visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer)
 
         # Check attributes
-        self.assertIs(visualizer.tokenizer, mock_tokenizer)
+        self.assertIs(visualizer.tokenizer, real_tokenizer)
 
 
 if __name__ == '__main__':

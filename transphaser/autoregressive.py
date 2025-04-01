@@ -102,11 +102,26 @@ class AutoregressiveHaplotypeDecoder:
         logits = logits / temperature
 
         if top_k is not None and top_k > 0:
-            # Apply top-k filtering
-            pass # Placeholder
+            # Apply top-k filtering: Keep only the top k logits
+            top_k = min(top_k, logits.size(-1)) # Ensure k is not larger than vocab size
+            # Remove tokens with probability less than the top_k token's probability
+            indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+            logits[indices_to_remove] = -float('Inf')
+
         if top_p is not None and 0.0 < top_p < 1.0:
             # Apply top-p (nucleus) filtering
-            pass # Placeholder
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+            # Remove tokens with cumulative probability above the threshold
+            sorted_indices_to_remove = cumulative_probs > top_p
+            # Shift the indices to the right to keep also the first token above the threshold
+            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+            sorted_indices_to_remove[..., 0] = 0
+
+            # Scatter sorted tensors to original indexing
+            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+            logits[indices_to_remove] = -float('Inf')
 
         probs = F.softmax(logits, dim=-1)
 

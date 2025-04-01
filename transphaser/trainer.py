@@ -5,6 +5,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler # Use base class for type hint
 import time # For timing epochs
 import logging # For logging progress
+import os # For path joining
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,9 +23,10 @@ class HLAPhasingTrainer:
                  epochs: int = 10, # Default epochs
                  grad_accumulation_steps: int = 1,
                  log_interval: int = 50, # Log every N batches
-                 # Add early stopping parameters if needed
-                 # early_stopping_patience: int = None,
-                 # checkpoint_manager = None # Pass CheckpointManager instance
+                 checkpoint_dir: str = "checkpoints", # Directory to save checkpoints
+                 checkpoint_frequency: int = 1, # Save checkpoint every N epochs
+                 early_stopping_patience: int = None, # Patience for early stopping (None to disable)
+                 final_model_filename: str = "final_model.pt" # Name for the final saved model
                  ):
         """
         Initializes the HLAPhasingTrainer.
@@ -36,10 +38,15 @@ class HLAPhasingTrainer:
             val_loader: DataLoader for the validation set.
             optimizer: The optimizer (e.g., Adam).
             lr_scheduler: Optional learning rate scheduler.
+            kl_scheduler: Optional KL annealing scheduler.
             device: The device to train on ('cuda' or 'cpu'). Auto-detects if None.
             epochs (int): Total number of training epochs.
             grad_accumulation_steps (int): Number of steps to accumulate gradients over.
             log_interval (int): Log training progress every N batches.
+            checkpoint_dir (str): Directory to save model checkpoints.
+            checkpoint_frequency (int): Frequency (in epochs) for saving checkpoints.
+            early_stopping_patience (int): Number of epochs to wait for improvement before stopping.
+            final_model_filename (str): Filename for the final saved model state.
         """
         self.model = model
         self.loss_fn = loss_fn
@@ -57,18 +64,28 @@ class HLAPhasingTrainer:
         self.epochs = epochs
         self.grad_accumulation_steps = grad_accumulation_steps
         self.log_interval = log_interval
+        self.checkpoint_dir = checkpoint_dir
+        self.checkpoint_frequency = checkpoint_frequency
+        self.early_stopping_patience = early_stopping_patience
+        self.final_model_filename = final_model_filename
+
 
         self.current_epoch = 0
         self.global_step = 0
         self.train_loss_history = []
         self.val_loss_history = []
-        # Add state for best model tracking, early stopping etc.
-        # self.best_val_loss = float('inf')
-        # self.epochs_no_improve = 0
+        self.best_val_loss = float('inf')
+        self.epochs_no_improve = 0
+
+        # Create checkpoint directory if it doesn't exist
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         self.model.to(self.device) # Move model to the specified device
         logging.info(f"HLAPhasingTrainer initialized. Training on {self.device}.")
         logging.info(f"Total epochs: {self.epochs}, Grad Accumulation: {self.grad_accumulation_steps}")
+        logging.info(f"Checkpoints will be saved to '{self.checkpoint_dir}' every {self.checkpoint_frequency} epoch(s).")
+        if self.early_stopping_patience:
+            logging.info(f"Early stopping enabled with patience {self.early_stopping_patience}.")
 
 
     def train_epoch(self):
@@ -83,7 +100,6 @@ class HLAPhasingTrainer:
             # Move batch to device (assuming batch is a dictionary of tensors)
             batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-            # --- Forward pass ---
             # --- Forward pass ---
             # Assumes model returns dict with keys needed by loss_fn (e.g., 'reconstruction_log_prob', 'kl_divergence')
             # Assumes batch contains all necessary keys (e.g., 'genotype_tokens', 'target_haplotype_tokens', etc.)
@@ -189,6 +205,37 @@ class HLAPhasingTrainer:
         logging.info(f'Epoch {self.current_epoch+1} Validation Summary | Avg Loss: {avg_val_loss:.4f} | Time: {elapsed:.2f}s')
         return avg_val_loss
 
+    def _save_checkpoint(self, epoch, val_loss, is_best=False):
+        """Saves a model checkpoint."""
+        checkpoint_state = {
+            'epoch': epoch + 1,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'val_loss': val_loss,
+            'best_val_loss': self.best_val_loss,
+            'train_loss_history': self.train_loss_history,
+            'val_loss_history': self.val_loss_history,
+        }
+        if self.lr_scheduler:
+            checkpoint_state['lr_scheduler_state_dict'] = self.lr_scheduler.state_dict()
+        if self.kl_scheduler:
+             # Assuming kl_scheduler has a state_dict or relevant attributes to save
+             if hasattr(self.kl_scheduler, 'state_dict'):
+                 checkpoint_state['kl_scheduler_state_dict'] = self.kl_scheduler.state_dict()
+             elif hasattr(self.kl_scheduler, 'current_weight'): # Example attribute
+                 checkpoint_state['kl_scheduler_weight'] = self.kl_scheduler.current_weight
+
+        filename = f"checkpoint_epoch_{epoch+1}.pt"
+        filepath = os.path.join(self.checkpoint_dir, filename)
+        torch.save(checkpoint_state, filepath)
+        logging.info(f"Saved checkpoint to {filepath}")
+
+        if is_best:
+            best_filename = "best_model.pt"
+            best_filepath = os.path.join(self.checkpoint_dir, best_filename)
+            torch.save(checkpoint_state, best_filepath)
+            logging.info(f"Saved best model checkpoint to {best_filepath}")
+
 
     def train(self):
         """Runs the full training loop for the specified number of epochs."""
@@ -202,27 +249,34 @@ class HLAPhasingTrainer:
             val_loss = self.evaluate()
             logging.info(f"--- Finished Epoch {self.current_epoch + 1}/{self.epochs} ---")
 
-            # TODO: Implement proper checkpointing based on validation loss
-            # Placeholder: Checkpointing logic would go here
-            # if val_loss < self.best_val_loss:
-            #     self.best_val_loss = val_loss
-            #     # Save checkpoint using CheckpointManager
-            #     logging.info(f"New best validation loss: {val_loss:.4f}. Saving model...")
-            #     # self.checkpoint_manager.save(self.model, self.optimizer, epoch, val_loss)
+            # Checkpointing logic
+            is_best = val_loss < self.best_val_loss
+            if is_best:
+                self.best_val_loss = val_loss
+                self.epochs_no_improve = 0 # Reset counter on improvement
+                logging.info(f"New best validation loss: {val_loss:.4f}. Saving best model...")
+                self._save_checkpoint(epoch, val_loss, is_best=True)
+            else:
+                self.epochs_no_improve += 1
 
-            # TODO: Implement early stopping logic
-            # ...
+            # Save checkpoint periodically regardless of improvement (optional)
+            if (epoch + 1) % self.checkpoint_frequency == 0 and not is_best: # Avoid double saving if it's the best
+                 self._save_checkpoint(epoch, val_loss, is_best=False)
 
-            # TODO: Implement KL Annealing update step
-            # if hasattr(self.loss_fn, 'update_kl_weight') and hasattr(self.config.training, 'kl_scheduler'): # Check if scheduler exists
-            #    new_kl_weight = self.config.training.kl_scheduler.step()
-            #    self.loss_fn.update_kl_weight(new_kl_weight)
+
+            # Early stopping logic
+            if self.early_stopping_patience and self.epochs_no_improve >= self.early_stopping_patience:
+                logging.info(f"Early stopping triggered after {self.epochs_no_improve} epochs without improvement.")
+                break # Exit the training loop
+
+            # KL Annealing update step is handled within train_epoch now
 
 
         logging.info("Training finished.")
-        # Save final model state (simple checkpointing)
-        final_model_path = "final_model.pt" # TODO: Make path configurable
+        # Save final model state
+        final_model_path = os.path.join(self.checkpoint_dir, self.final_model_filename)
         try:
+            # Save only the model state dict for the final model
             torch.save(self.model.state_dict(), final_model_path)
             logging.info(f"Saved final model state to {final_model_path}")
         except Exception as e:

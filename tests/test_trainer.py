@@ -10,9 +10,9 @@ import shutil # For removing temp directory
 # Placeholders for classes we need
 # from src.model import HLAPhasingModel # Assume this exists
 # from src.loss import ELBOLoss # Assume this exists
-from src.trainer import HLAPhasingTrainer
+from transphaser.trainer import HLAPhasingTrainer # Reverted to src.
 # Placeholder for CheckpointManager
-from src.checkpoint import CheckpointManager
+from transphaser.checkpoint import CheckpointManager # Reverted to src.
 
 # --- Mocks ---
 class MockModel(nn.Module):

@@ -4,9 +4,9 @@ import torch.nn as nn
 import math # Added for annealing test
 
 # Placeholder for HaplotypeCompatibilityChecker
-from src.compatibility import HaplotypeCompatibilityChecker
+from transphaser.compatibility import HaplotypeCompatibilityChecker # Reverted to src.
 # Placeholder for the classes we are about to create
-from src.samplers import GumbelSoftmaxSampler, ConstrainedHaplotypeSampler
+from transphaser.samplers import GumbelSoftmaxSampler, ConstrainedHaplotypeSampler # Reverted to src.
 
 class TestGumbelSoftmaxSampler(unittest.TestCase):
 

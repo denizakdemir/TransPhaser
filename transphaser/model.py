@@ -3,8 +3,8 @@ import torch.nn as nn
 import logging # Add missing import
 
 # Import actual transformer implementations
-from src.encoder import GenotypeEncoderTransformer # Corrected import path
-from src.decoder import HaplotypeDecoderTransformer # Corrected import path
+from transphaser.encoder import GenotypeEncoderTransformer # Corrected import path
+from transphaser.decoder import HaplotypeDecoderTransformer # Corrected import path
 
 class HLAPhasingModel(nn.Module):
     """
@@ -59,14 +59,11 @@ class HLAPhasingModel(nn.Module):
 
         # Initialize actual encoder and decoder models
         # Pass the prepared config dictionaries
-        # Need to ensure the sub-configs match what the transformers expect
-        # For now, assume they take the full model config dict or relevant parts
-        # TODO: Refine config passing based on actual transformer __init__ signatures
         self.encoder = GenotypeEncoderTransformer(self.encoder_config)
         self.decoder = HaplotypeDecoderTransformer(self.decoder_config)
-        print("HLAPhasingModel initialized with Encoder and Decoder.")
+        logging.info("HLAPhasingModel initialized with Encoder and Decoder.")
         # Store latent_dim for convenience
-        self.latent_dim = self.encoder.latent_dim
+        self.latent_dim = self.encoder.latent_dim # Assuming encoder exposes latent_dim
 
         # Apply custom weight initialization
         self.apply(self._init_weights)

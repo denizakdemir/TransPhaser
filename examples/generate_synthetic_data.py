@@ -5,7 +5,7 @@ import itertools
 import os
 
 # --- Configuration ---
-NUM_SAMPLES = 500
+NUM_SAMPLES = 5000
 LOCI = ['HLA-A', 'HLA-B', 'HLA-DRB1']
 MISSING_RATE = 0.05 # Proportion of alleles to mark as missing in one dataset
 OUTPUT_DIR = "examples/data"

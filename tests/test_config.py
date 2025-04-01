@@ -17,7 +17,7 @@ except ImportError:
 
 
 # Placeholder for the classes we are about to create
-from src.config import HLAPhasingConfig, DataConfig, ModelConfig, TrainingConfig, LocusMetadataManager, AlleleFrequencyPrior, CovariateManager # Import sub-configs
+from transphaser.config import HLAPhasingConfig, DataConfig, ModelConfig, TrainingConfig, LocusMetadataManager, AlleleFrequencyPrior, CovariateManager # Reverted to src.
 
 # Define a simple structure matching what HLAPhasingConfig might expect
 # We need these for the test setup, even if HLAPhasingConfig defines its own

@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 
 # Placeholder for the class we are about to create
-from src.model import HLAPhasingModel
+from transphaser.model import HLAPhasingModel # Reverted to src.
 # Import AlleleTokenizer
-from src.data_preprocessing import AlleleTokenizer
+from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
 
 # Minimal placeholder for Encoder/Decoder needed for initialization test
 class MockTransformer(nn.Module):

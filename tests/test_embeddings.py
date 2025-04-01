@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 # Placeholder for the classes we are about to create
-from src.embeddings import LocusPositionalEmbedding, AlleleEmbedding
+from transphaser.embeddings import LocusPositionalEmbedding, AlleleEmbedding # Reverted to src.
 
 class TestLocusPositionalEmbedding(unittest.TestCase):
 
