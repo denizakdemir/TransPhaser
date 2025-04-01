@@ -1,0 +1,4 @@
+Evaluation Metrics:
+- phasing_accuracy: 0.4610
+- avg_hamming_distance: 1.0780
+- avg_switch_errors: 0.6550

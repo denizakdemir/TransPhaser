@@ -2,9 +2,20 @@ import torch
 import numpy as np
 import logging
 import torch.nn as nn # Added import for nn.Module
+import os # Import os for path joining
+from typing import Optional, List, Tuple, Any, Dict # Import Dict, List, Tuple, Any
 
 # Import necessary components
 from transphaser.data_preprocessing import AlleleTokenizer # Import AlleleTokenizer
+
+# Attempt to import matplotlib, but make it optional
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    # Log warning here instead of inside the class?
+    # logging.warning("matplotlib not found. Plotting functionality will be disabled.")
 
 class HLAPhasingMetrics:
     """
@@ -358,8 +369,8 @@ class HaplotypeCandidateRanker:
         Args:
             model: The trained model (e.g., HLAPhasingModel) capable of scoring haplotypes.
             num_candidates (int): The maximum number of candidate pairs to return. Defaults to 10.
-            diversity_weight (float): Weight for promoting diversity among top candidates.
-                                      (Specific mechanism TBD). Defaults to 0.1.
+            diversity_weight (float): Weight for promoting diversity among top candidates (lambda in MMR).
+                                      Defaults to 0.1.
         """
         if not isinstance(model, nn.Module): # Basic check
              raise TypeError("model must be a PyTorch nn.Module.")
@@ -370,36 +381,54 @@ class HaplotypeCandidateRanker:
 
         self.model = model
         self.num_candidates = num_candidates
-        self.diversity_weight = diversity_weight
+        self.diversity_weight = diversity_weight # This is lambda in MMR
         logging.debug("HaplotypeCandidateRanker initialized.")
 
-    @torch.no_grad()
-    def rank_candidates(self, batch, candidate_haplotypes):
+    def _calculate_pair_similarity(self, pair1: Tuple[str, str], pair2: Tuple[str, str]) -> float:
         """
-        Ranks provided candidate haplotype pairs for a batch of genotypes.
+        Calculates similarity between two haplotype pairs.
+        Currently uses inverse Hamming distance on concatenated strings.
+        Higher value means more similar.
+        Assumes pairs are tuples of strings: (hap1_str, hap2_str).
+        """
+        # Simple similarity: 1 / (1 + Hamming distance between concatenated strings)
+        # This is a basic metric; more sophisticated ones could be used.
+        hap1_a, hap2_a = pair1
+        hap1_b, hap2_b = pair2
+
+        # Concatenate for a single distance measure (simplistic)
+        # A better approach might average distances or consider loci separately.
+        str_a = hap1_a + "_" + hap2_a
+        str_b = hap1_b + "_" + hap2_b
+
+        alleles_a = str_a.split('_')
+        alleles_b = str_b.split('_')
+
+        if len(alleles_a) != len(alleles_b):
+            return 0.0 # Cannot compare if lengths differ
+
+        distance = sum(1 for a, b in zip(alleles_a, alleles_b) if a != b)
+        similarity = 1.0 / (1.0 + float(distance)) # Ensure float division
+        return similarity
+
+
+    @torch.no_grad()
+    def rank_candidates(self, batch: Dict[str, Any], candidate_haplotypes: List[List[Tuple[str, str]]]) -> List[List[Tuple[Tuple[str, str], torch.Tensor]]]:
+        """
+        Ranks provided candidate haplotype pairs for a batch of genotypes,
+        optionally applying Maximal Marginal Relevance (MMR) for diversity.
 
         Args:
             batch (dict): Batch dictionary containing input data (genotypes, covariates).
+                          Content might be used by the model's scoring function.
             candidate_haplotypes (list): A list where each element corresponds to a sample
                                          in the batch. Each element is itself a list of
-                                         candidate haplotype pairs (e.g., tuples of allele strings
-                                         or token ID tensors) for that sample.
+                                         candidate haplotype pairs (tuples of allele strings).
 
         Returns:
             list: A list (one per sample) of ranked candidate haplotype pairs,
-                  potentially with associated scores. Structure TBD.
-                  Example: [[(hap_pair1, score1), (hap_pair2, score2), ...], ...]
+                  each element being a tuple: ((hap1_str, hap2_str), score_tensor).
         """
-        # Removed placeholder warning
-        # Actual implementation would involve:
-        # 1. Using the model (e.g., decoder or full model) to calculate a score
-        #    (e.g., log probability log p(h|c) or log p(h|g,c)) for each candidate pair.
-        # 2. Potentially applying diversity promotion techniques (e.g., penalizing
-        #    candidates similar to already selected top candidates).
-        # 3. Sorting candidates based on the final score.
-        # 4. Returning the top 'self.num_candidates'.
-
-        # --- Implementation ---
         self.model.eval() # Ensure model is in eval mode
         batch_size = len(candidate_haplotypes) # Assume outer list length is batch size
         ranked_results_batch = []
@@ -414,9 +443,8 @@ class HaplotypeCandidateRanker:
                 continue
 
             # Extract necessary info for this sample from the batch if needed by the model's scorer
-            # For the mock, we don't need specific batch info per sample, but a real model might.
-            # Example: batch_sample_info = {'genotype': batch['genotypes'][i], ...}
-            batch_sample_info = batch # Pass the whole batch for simplicity in mock
+            # For now, pass the whole batch, assuming the scorer handles indexing if needed.
+            batch_sample_info = batch
 
             scored_candidates = []
             for candidate_pair in sample_candidates:
@@ -431,18 +459,50 @@ class HaplotypeCandidateRanker:
                      scored_candidates.append((candidate_pair, torch.tensor(float('-inf'))))
 
 
-            # Sort candidates by score (descending)
+            # Sort candidates by original score (descending)
             # Use .item() if scores are scalar tensors
             scored_candidates.sort(key=lambda x: x[1].item() if isinstance(x[1], torch.Tensor) else x[1], reverse=True)
 
-            # Apply diversity weighting (placeholder - not implemented)
-            if self.diversity_weight > 0:
-                # TODO: Implement diversity logic (e.g., penalize similar pairs)
-                logging.debug("Diversity weighting is configured but not yet implemented in rank_candidates.")
-                pass # No diversity applied yet
+            # Apply MMR if diversity_weight > 0 and there's more than one candidate
+            if self.diversity_weight > 0 and len(scored_candidates) > 1:
+                lambda_val = self.diversity_weight # MMR lambda
+                ranked_mmr = []
+                candidates_pool = scored_candidates.copy()
 
-            # Return top N candidates
-            top_n_candidates = scored_candidates[:self.num_candidates]
+                # Select the first candidate (highest original score)
+                best_initial = candidates_pool.pop(0)
+                ranked_mmr.append(best_initial)
+
+                while len(ranked_mmr) < self.num_candidates and candidates_pool:
+                    mmr_scores = []
+                    for candidate_idx, (candidate_pair, score) in enumerate(candidates_pool):
+                        max_similarity = 0.0
+                        # Calculate max similarity to already selected candidates
+                        for selected_pair, _ in ranked_mmr:
+                            similarity = self._calculate_pair_similarity(candidate_pair, selected_pair)
+                            max_similarity = max(max_similarity, similarity)
+
+                        # MMR formula: lambda * score - (1 - lambda) * max_similarity
+                        # Note: Assuming higher score is better (e.g., log probability)
+                        # Ensure score is float for calculation
+                        score_val = score.item() if isinstance(score, torch.Tensor) else float(score)
+                        mmr_score = lambda_val * score_val - (1 - lambda_val) * max_similarity
+                        mmr_scores.append((mmr_score, candidate_idx)) # Store score and original index
+
+                    # Find the candidate with the highest MMR score
+                    mmr_scores.sort(key=lambda x: x[0], reverse=True)
+                    best_mmr_idx_in_pool = mmr_scores[0][1]
+
+                    # Add the best MMR candidate to the ranked list and remove from pool
+                    ranked_mmr.append(candidates_pool.pop(best_mmr_idx_in_pool))
+
+                # Replace original sorted list with MMR ranked list
+                top_n_candidates = ranked_mmr[:self.num_candidates] # Ensure we don't exceed num_candidates
+
+            else:
+                # No diversity applied, just take top N from original sorting
+                top_n_candidates = scored_candidates[:self.num_candidates]
+
             ranked_results_batch.append(top_n_candidates)
 
         return ranked_results_batch
@@ -465,136 +525,208 @@ class PhasingResultVisualizer:
              raise TypeError("tokenizer must be an instance of AlleleTokenizer")
 
         self.tokenizer = tokenizer
-        # May need plotting libraries like matplotlib or seaborn
-        try:
-             import matplotlib.pyplot as plt
-             self.plt = plt
-             logging.debug("Matplotlib imported successfully for PhasingResultVisualizer.")
-        except ImportError:
-             self.plt = None
+        # Store output_dir, needed for saving plots
+        # Assuming visualizer might be created independently or needs output dir
+        # Add output_dir to __init__? For now, assume it's handled externally or passed to methods.
+        # Let's add it to __init__ for consistency with Reporter
+        self.output_dir = "visualizer_output" # Default or get from config? Needs refinement.
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # Use the module-level flag and import
+        self.plt = plt if MATPLOTLIB_AVAILABLE else None
+        if not MATPLOTLIB_AVAILABLE:
              logging.warning("Matplotlib not found. Plotting functions in PhasingResultVisualizer will be disabled.")
 
         logging.debug("PhasingResultVisualizer initialized.")
 
-    def plot_likelihoods(self, ranked_candidates, output_path=None):
+    def plot_likelihoods(self, ranked_candidates, output_path: Optional[str] = None):
         """
-        Plots the likelihood/score distribution of ranked haplotype candidates.
+        Plots the likelihood/score distribution of ranked haplotype candidates for the first sample.
 
         Args:
             ranked_candidates (list): Output from HaplotypeCandidateRanker, a list
                                       (per sample) of (hap_pair, score) tuples.
-            output_path (str, optional): Path to save the plot. If None, might display it.
+            output_path (str, optional): Full path to save the plot. If None, the plot is not saved.
         """
         if not self.plt:
             logging.warning("Matplotlib not available. Skipping plot_likelihoods.")
             return
-        logging.info("Plotting likelihoods (placeholder implementation)...")
-        # Placeholder: Create a simple figure for the first sample if data exists
-        if ranked_candidates and ranked_candidates[0]:
-            scores = [score.item() for _, score in ranked_candidates[0]]
-            try:
-                fig, ax = self.plt.subplots()
-                ax.bar(range(len(scores)), scores)
-                ax.set_title("Candidate Likelihoods (Sample 0 - Placeholder)")
-                ax.set_xlabel("Candidate Rank")
-                ax.set_ylabel("Score")
-                if output_path:
-                    fig.savefig(output_path)
-                    logging.info(f"Likelihood plot placeholder saved to {output_path}")
-                else:
-                    # Avoid showing plot during automated tests, just log
-                    logging.info("Likelihood plot placeholder generated (not shown).")
-                self.plt.close(fig) # Close the figure to free memory
-            except Exception as e:
-                 logging.error(f"Error during placeholder likelihood plotting: {e}", exc_info=True)
 
-        # raise NotImplementedError("Likelihood plotting is not yet implemented.") # Corrected indentation
+        if not ranked_candidates or not ranked_candidates[0]:
+            logging.warning("No ranked candidates provided for the first sample. Skipping plot_likelihoods.")
+            return
 
-    def plot_uncertainty(self, uncertainty_estimates, output_path=None):
+        # Plot only for the first sample for simplicity
+        scores = [score.item() for _, score in ranked_candidates[0]]
+        num_candidates = len(scores)
+        ranks = range(1, num_candidates + 1) # Ranks from 1 to N
+
+        try:
+            fig, ax = self.plt.subplots(figsize=(10, 6))
+            ax.bar(ranks, scores, color='skyblue')
+            ax.set_title("Candidate Haplotype Scores (First Sample)")
+            ax.set_xlabel("Candidate Rank")
+            ax.set_ylabel("Score (Log Likelihood or similar)")
+            ax.set_xticks(ranks) # Ensure ticks match ranks
+            ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+            if output_path:
+                # Ensure the directory exists before saving
+                output_dir = os.path.dirname(output_path)
+                if output_dir: # Handle cases where output_path might be just a filename
+                     os.makedirs(output_dir, exist_ok=True)
+                fig.savefig(output_path)
+                logging.info(f"Likelihood plot saved to {output_path}")
+            else:
+                logging.info("Likelihood plot generated but not saved (no output_path provided).")
+
+            self.plt.close(fig) # Close the figure to free memory
+
+        except Exception as e:
+             logging.error(f"Error during likelihood plotting: {e}", exc_info=True)
+             # Ensure plot is closed if error occurs after figure creation
+             if 'fig' in locals() and self.plt:
+                 self.plt.close(fig)
+
+
+    def plot_uncertainty(self, uncertainty_estimates, output_path: Optional[str] = None, bins: int = 20):
         """
-        Plots the estimated uncertainty for samples or loci.
+        Plots a histogram of the estimated uncertainty (e.g., mean prediction entropy).
 
         Args:
-            uncertainty_estimates (dict or torch.Tensor): Output from PhasingUncertaintyEstimator.
-            output_path (str, optional): Path to save the plot.
+            uncertainty_estimates (dict): Output from PhasingUncertaintyEstimator, expected
+                                          to contain 'mean_prediction_entropy'.
+            output_path (str, optional): Full path to save the plot. If None, plot is not saved.
+            bins (int): Number of bins for the histogram. Defaults to 20.
         """
         if not self.plt:
             logging.warning("Matplotlib not available. Skipping plot_uncertainty.")
             return
-        # Removed placeholder warning
-        # Example: Plot histogram of mean_prediction_entropy
-        # if 'mean_prediction_entropy' in uncertainty_estimates:
-        #     entropies = uncertainty_estimates['mean_prediction_entropy'].cpu().numpy()
-        #     self.plt.figure()
-        #     self.plt.hist(entropies, bins=20)
-        #     self.plt.xlabel("Mean Prediction Entropy")
-        #     self.plt.ylabel("Frequency")
-        #     self.plt.title("Distribution of Phasing Uncertainty (Entropy)")
-        #     if output_path:
-        #         self.plt.savefig(output_path)
-        #         logging.info(f"Uncertainty plot saved to {output_path}")
-        #     else:
-        #         self.plt.show()
-        #     self.plt.close()
-        logging.info("Plotting uncertainty (placeholder implementation)...")
-        # Placeholder: Create a simple histogram if data exists
-        if 'mean_prediction_entropy' in uncertainty_estimates:
-            entropies = uncertainty_estimates['mean_prediction_entropy'].cpu().numpy()
-            try:
-                fig, ax = self.plt.subplots()
-                ax.hist(entropies, bins=10)
-                ax.set_title("Uncertainty Distribution (Placeholder)")
-                ax.set_xlabel("Mean Prediction Entropy")
-                ax.set_ylabel("Frequency")
-                if output_path:
-                    fig.savefig(output_path)
-                    logging.info(f"Uncertainty plot placeholder saved to {output_path}")
-                else:
-                    logging.info("Uncertainty plot placeholder generated (not shown).")
-                self.plt.close(fig)
-            except Exception as e:
-                 logging.error(f"Error during placeholder uncertainty plotting: {e}", exc_info=True)
+
+        if not isinstance(uncertainty_estimates, dict) or 'mean_prediction_entropy' not in uncertainty_estimates:
+            logging.warning("Invalid or missing 'mean_prediction_entropy' in uncertainty_estimates. Skipping plot.")
+            return
+
+        entropies_tensor = uncertainty_estimates['mean_prediction_entropy']
+        if not isinstance(entropies_tensor, torch.Tensor) or entropies_tensor.numel() == 0:
+             logging.warning("Mean prediction entropy data is not a valid tensor or is empty. Skipping plot.")
+             return
+
+        # Convert to numpy, handling potential NaNs
+        entropies = entropies_tensor.cpu().numpy()
+        valid_entropies = entropies[~np.isnan(entropies)] # Filter out NaNs for plotting
+
+        if valid_entropies.size == 0:
+             logging.warning("No valid (non-NaN) entropy values found. Skipping plot.")
+             return
+
+        try:
+            fig, ax = self.plt.subplots(figsize=(10, 6))
+            ax.hist(valid_entropies, bins=bins, color='lightcoral', edgecolor='black')
+            ax.set_title("Distribution of Phasing Uncertainty (Mean Prediction Entropy)")
+            ax.set_xlabel("Mean Prediction Entropy")
+            ax.set_ylabel("Frequency")
+            ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+            if output_path:
+                # Ensure the directory exists before saving
+                output_dir = os.path.dirname(output_path)
+                if output_dir:
+                     os.makedirs(output_dir, exist_ok=True)
+                fig.savefig(output_path)
+                logging.info(f"Uncertainty histogram saved to {output_path}")
+            else:
+                logging.info("Uncertainty histogram generated but not saved (no output_path provided).")
+
+            self.plt.close(fig)
+
+        except Exception as e:
+             logging.error(f"Error during uncertainty plotting: {e}", exc_info=True)
+             if 'fig' in locals() and self.plt:
+                 self.plt.close(fig)
 
 
-        # raise NotImplementedError("Uncertainty plotting is not yet implemented.") # Corrected indentation
-
-
-    def visualize_alignment(self, genotype, predicted_haplotypes, true_haplotypes=None, output_path=None):
+    def visualize_alignment(self, genotype_str_dict, predicted_pair, true_haplotypes=None, output_path=None):
         """
-        Creates a visual alignment of genotype and predicted/true haplotypes.
+        Creates a text-based visual alignment of genotype and predicted/true haplotypes.
 
         Args:
-            genotype: The input genotype data for a sample.
-            predicted_haplotypes: The predicted haplotype pair(s) for the sample.
-            true_haplotypes: Optional ground truth haplotype pair.
-            output_path (str, optional): Path to save the visualization.
+            genotype_str_dict (dict): Dictionary mapping locus name to genotype string (e.g., "A*01/A*02").
+            predicted_pair (tuple): Tuple of predicted haplotype strings (e.g., ('HapA_HapB', 'HapC_HapD')).
+            true_haplotypes (tuple, optional): Tuple of ground truth haplotype strings. Defaults to None.
+            output_path (str, optional): Full path to save the visualization. If None, not saved.
         """
         if not self.plt:
             logging.warning("Matplotlib not available. Skipping visualize_alignment.")
             return
-        logging.info("Visualizing alignment (placeholder implementation)...")
-        # Placeholder: Just log the data that would be visualized
-        logging.debug(f"Genotype: {genotype}")
-        logging.debug(f"Predicted: {predicted_haplotypes}")
-        logging.debug(f"True: {true_haplotypes}")
-        # A real implementation might use plt.text or create a table-like plot
 
-        # Example of creating a basic text figure if plt is available
-        if self.plt:
-            try:
-                fig, ax = self.plt.subplots()
-                text_content = f"Genotype: {genotype}\nPredicted: {predicted_haplotypes}\nTrue: {true_haplotypes}"
-                ax.text(0.1, 0.5, text_content, va='center')
-                ax.axis('off') # Hide axes
-                ax.set_title("Alignment Placeholder")
-                if output_path:
-                    fig.savefig(output_path)
-                    logging.info(f"Alignment visualization placeholder saved to {output_path}")
-                else:
-                    logging.info("Alignment visualization placeholder generated (not shown).")
-                self.plt.close(fig)
-            except Exception as e:
-                 logging.error(f"Error during placeholder alignment visualization: {e}", exc_info=True)
+        # --- Prepare Alignment Data ---
+        loci = list(genotype_str_dict.keys()) # Infer loci from genotype dict
+        pred_h1_alleles = predicted_pair[0].split('_')
+        pred_h2_alleles = predicted_pair[1].split('_')
 
+        if len(pred_h1_alleles) != len(loci) or len(pred_h2_alleles) != len(loci):
+             logging.warning("Mismatch between number of loci in genotype and predicted haplotypes. Skipping alignment.")
+             return
 
-        # raise NotImplementedError("Alignment visualization is not yet implemented.") # Corrected indentation
+        alignment_lines = []
+        header = f"{'Locus':<10} {'Genotype':<15} {'Pred H1':<15} {'Pred H2':<15}"
+        if true_haplotypes:
+            true_h1_alleles = true_haplotypes[0].split('_')
+            true_h2_alleles = true_haplotypes[1].split('_')
+            if len(true_h1_alleles) != len(loci) or len(true_h2_alleles) != len(loci):
+                 logging.warning("Mismatch between number of loci in genotype and true haplotypes. Skipping true data in alignment.")
+                 true_haplotypes = None # Disable true data display
+            else:
+                 header += f" {'True H1':<15} {'True H2':<15}"
+        alignment_lines.append(header)
+        alignment_lines.append("-" * len(header))
+
+        for i, locus in enumerate(loci):
+            geno = genotype_str_dict.get(locus, "N/A")
+            p1 = pred_h1_alleles[i]
+            p2 = pred_h2_alleles[i]
+            line = f"{locus:<10} {geno:<15} {p1:<15} {p2:<15}"
+            if true_haplotypes:
+                t1 = true_h1_alleles[i]
+                t2 = true_h2_alleles[i]
+                # Add simple match indicator
+                match_p1_t1 = "*" if p1 == t1 else " "
+                match_p2_t2 = "*" if p2 == t2 else " "
+                match_p1_t2 = "+" if p1 == t2 else " "
+                match_p2_t1 = "+" if p2 == t1 else " "
+                line += f" {t1:<15} {t2:<15}  ({match_p1_t1}{match_p2_t2} / {match_p1_t2}{match_p2_t1})"
+            alignment_lines.append(line)
+
+        alignment_text = "\n".join(alignment_lines)
+
+        # --- Plotting ---
+        try:
+            # Estimate figure size needed based on lines and line length
+            num_lines = len(alignment_lines)
+            max_len = max(len(line) for line in alignment_lines)
+            # Basic estimation, might need refinement
+            fig_height = max(4, num_lines * 0.3)
+            fig_width = max(8, max_len * 0.1)
+
+            fig, ax = self.plt.subplots(figsize=(fig_width, fig_height))
+            # Use monospace font for better alignment
+            ax.text(0.01, 0.99, alignment_text, family='monospace', va='top', ha='left', wrap=False)
+            ax.axis('off')
+            ax.set_title("Haplotype Alignment")
+
+            if output_path:
+                output_dir = os.path.dirname(output_path)
+                if output_dir:
+                     os.makedirs(output_dir, exist_ok=True)
+                fig.savefig(output_path, bbox_inches='tight', pad_inches=0.1) # Use tight bbox
+                logging.info(f"Alignment visualization saved to {output_path}")
+            else:
+                logging.info("Alignment visualization generated but not saved (no output_path provided).")
+
+            self.plt.close(fig)
+
+        except Exception as e:
+             logging.error(f"Error during alignment visualization: {e}", exc_info=True)
+             if 'fig' in locals() and self.plt:
+                 self.plt.close(fig)
