@@ -127,6 +127,17 @@ class HaplotypeDecoderTransformer(nn.Module):
         # if seq_len != self.seq_len:
         #      raise ValueError(f"Input seq_len ({seq_len}) doesn't match expected decoder seq_len ({self.seq_len}).")
 
+        # Convert attention mask to bool if provided
+        if attention_mask is not None:
+            attention_mask = attention_mask.bool()
+            
+        # Create causal mask for autoregressive generation
+        causal_mask = self._generate_square_subsequent_mask(seq_len).to(device)
+        
+        # Convert causal mask to bool to match attention_mask type
+        # This ensures both masks are of the same type
+        causal_mask_bool = causal_mask.bool()
+        
         # --- Input Embeddings ---
         # 1. Allele Embeddings: Manual lookup, handling BOS separately
         allele_embed = torch.zeros(batch_size, seq_len, self.embedding_dim, device=device)
@@ -142,10 +153,11 @@ class HaplotypeDecoderTransformer(nn.Module):
         # Get embeddings for actual allele tokens (positions 1 to seq_len-1)
         # The loop needs to go up to seq_len-1, accessing locus name by index i
         for i in range(seq_len - 1): # Iterate based on actual input length (excluding BOS)
-            locus_name = self.loci_order[i] # Get locus name for this position
-            locus_tokens = input_tokens[:, i+1] # Get tokens for locus i (at position i+1)
+            locus_idx = i % len(self.loci_order)  # Wrap around if seq_len > num_loci
+            locus_name = self.loci_order[locus_idx]  # Get locus name for this position
+            locus_tokens = input_tokens[:, i+1]  # Get tokens for locus i (at position i+1)
             embeds = self.allele_embedding.locus_embedders[locus_name](locus_tokens)
-            allele_embed[:, i+1, :] = embeds # Corrected indentation
+            allele_embed[:, i+1, :] = embeds
 
         # 2. Positional Embeddings (using LocusPositionalEmbedding for loci only)
         # Create positional embeddings tensor, initialized to zeros
@@ -191,13 +203,10 @@ class HaplotypeDecoderTransformer(nn.Module):
 
         # LayerNorm was moved to before adding conditioning
 
-        # 4. Generate Causal Mask based on current input seq_len
-        causal_mask = self._generate_square_subsequent_mask(seq_len).to(device)
-
-        # 5. Pass through Transformer Layers
-        # Use causal_mask for the attention mask within the decoder stack
+        # 4. Pass through Transformer Layers
+        # Use causal_mask_bool for the attention mask within the decoder stack
         # Use attention_mask (padding mask) for src_key_padding_mask
-        output = self.transformer_layers(x, mask=causal_mask, src_key_padding_mask=attention_mask) # (batch, seq_len, embed_dim)
+        output = self.transformer_layers(x, mask=causal_mask_bool, src_key_padding_mask=attention_mask) # (batch, seq_len, embed_dim)
 
         # 6. Apply Output Heads (Per Locus)
         # Output corresponds to prediction for the *next* token.

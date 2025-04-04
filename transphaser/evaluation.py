@@ -415,57 +415,41 @@ class HaplotypeCandidateRanker:
     @torch.no_grad()
     def rank_candidates(self, batch: Dict[str, Any], candidate_haplotypes: List[List[Tuple[str, str]]]) -> List[List[Tuple[Tuple[str, str], torch.Tensor]]]:
         """
-        Ranks provided candidate haplotype pairs for a batch of genotypes,
-        optionally applying Maximal Marginal Relevance (MMR) for diversity.
+        Ranks candidate haplotype pairs for each sample in the batch.
+        Optionally applies Maximal Marginal Relevance (MMR) for diversity.
 
         Args:
-            batch (dict): Batch dictionary containing input data (genotypes, covariates).
-                          Content might be used by the model's scoring function.
-            candidate_haplotypes (list): A list where each element corresponds to a sample
-                                         in the batch. Each element is itself a list of
-                                         candidate haplotype pairs (tuples of allele strings).
+            batch: Dictionary containing batch data
+            candidate_haplotypes: List of lists of candidate haplotype pairs for each sample
 
         Returns:
-            list: A list (one per sample) of ranked candidate haplotype pairs,
-                  each element being a tuple: ((hap1_str, hap2_str), score_tensor).
+            List of lists of (haplotype_pair, score) tuples, sorted by score in descending order
         """
-        self.model.eval() # Ensure model is in eval mode
-        batch_size = len(candidate_haplotypes) # Assume outer list length is batch size
-        ranked_results_batch = []
+        self.model.eval()  # Ensure model is in eval mode
+        ranked_results = []
+        epsilon = 1e-6  # Small value to handle floating-point precision
 
-        if not hasattr(self.model, 'score_haplotype_pair'):
-             raise AttributeError("Model must have a 'score_haplotype_pair' method for ranking.")
-
-        for i in range(batch_size):
-            sample_candidates = candidate_haplotypes[i]
-            if not sample_candidates:
-                ranked_results_batch.append([]) # No candidates for this sample
+        for sample_idx, candidates in enumerate(candidate_haplotypes):
+            if not candidates:
+                ranked_results.append([])
                 continue
 
-            # Extract necessary info for this sample from the batch if needed by the model's scorer
-            # For now, pass the whole batch, assuming the scorer handles indexing if needed.
-            batch_sample_info = batch
-
+            # Calculate scores for all candidates
             scored_candidates = []
-            for candidate_pair in sample_candidates:
+            for pair in candidates:
                 try:
-                    # Score the pair using the model
-                    score = self.model.score_haplotype_pair(batch_sample_info, candidate_pair)
-                    # Ensure score is on CPU for sorting if it's a tensor
-                    scored_candidates.append((candidate_pair, score.cpu()))
+                    score = self.model.score_haplotype_pair(batch, pair)
+                    scored_candidates.append((pair, score))
                 except Exception as e:
-                     logging.error(f"Error scoring candidate pair {candidate_pair} for sample {i}: {e}", exc_info=True)
-                     # Assign a very low score or skip? Assign low score for now.
-                     scored_candidates.append((candidate_pair, torch.tensor(float('-inf'))))
-
+                    logging.error(f"Error scoring candidate pair {pair} for sample {sample_idx}: {e}", exc_info=True)
+                    scored_candidates.append((pair, torch.tensor(float('-inf'))))
 
             # Sort candidates by original score (descending)
-            # Use .item() if scores are scalar tensors
-            scored_candidates.sort(key=lambda x: x[1].item() if isinstance(x[1], torch.Tensor) else x[1], reverse=True)
+            scored_candidates.sort(key=lambda x: x[1].item(), reverse=True)
 
             # Apply MMR if diversity_weight > 0 and there's more than one candidate
             if self.diversity_weight > 0 and len(scored_candidates) > 1:
-                lambda_val = self.diversity_weight # MMR lambda
+                lambda_val = self.diversity_weight  # MMR lambda
                 ranked_mmr = []
                 candidates_pool = scored_candidates.copy()
 
@@ -474,38 +458,38 @@ class HaplotypeCandidateRanker:
                 ranked_mmr.append(best_initial)
 
                 while len(ranked_mmr) < self.num_candidates and candidates_pool:
-                    mmr_scores = []
-                    for candidate_idx, (candidate_pair, score) in enumerate(candidates_pool):
-                        max_similarity = 0.0
+                    best_mmr_score = float('-inf')
+                    best_mmr_idx = 0
+
+                    # Find candidate with highest MMR score
+                    for i, (candidate_pair, score) in enumerate(candidates_pool):
                         # Calculate max similarity to already selected candidates
-                        for selected_pair, _ in ranked_mmr:
-                            similarity = self._calculate_pair_similarity(candidate_pair, selected_pair)
-                            max_similarity = max(max_similarity, similarity)
+                        max_similarity = max(
+                            self._calculate_pair_similarity(candidate_pair, selected_pair)
+                            for selected_pair, _ in ranked_mmr
+                        )
 
-                        # MMR formula: lambda * score - (1 - lambda) * max_similarity
-                        # Note: Assuming higher score is better (e.g., log probability)
-                        # Ensure score is float for calculation
-                        score_val = score.item() if isinstance(score, torch.Tensor) else float(score)
-                        mmr_score = lambda_val * score_val - (1 - lambda_val) * max_similarity
-                        mmr_scores.append((mmr_score, candidate_idx)) # Store score and original index
+                        # MMR formula: (1 - lambda) * score - lambda * max_similarity
+                        # This ensures that higher scores and lower similarities are preferred
+                        score_val = score.item()
+                        mmr_score = (1 - lambda_val) * score_val - lambda_val * max_similarity
 
-                    # Find the candidate with the highest MMR score
-                    mmr_scores.sort(key=lambda x: x[0], reverse=True)
-                    best_mmr_idx_in_pool = mmr_scores[0][1]
+                        if mmr_score > best_mmr_score:
+                            best_mmr_score = mmr_score
+                            best_mmr_idx = i
 
                     # Add the best MMR candidate to the ranked list and remove from pool
-                    ranked_mmr.append(candidates_pool.pop(best_mmr_idx_in_pool))
+                    ranked_mmr.append(candidates_pool.pop(best_mmr_idx))
 
                 # Replace original sorted list with MMR ranked list
-                top_n_candidates = ranked_mmr[:self.num_candidates] # Ensure we don't exceed num_candidates
-
+                top_n_candidates = ranked_mmr[:self.num_candidates]  # Ensure we don't exceed num_candidates
             else:
                 # No diversity applied, just take top N from original sorting
                 top_n_candidates = scored_candidates[:self.num_candidates]
 
-            ranked_results_batch.append(top_n_candidates)
+            ranked_results.append(top_n_candidates)
 
-        return ranked_results_batch
+        return ranked_results
 
 
 class PhasingResultVisualizer:

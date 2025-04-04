@@ -20,17 +20,26 @@ class GenotypeEncoderTransformer(nn.Module):
                            num_layers, ff_dim, dropout, covariate_dim, latent_dim etc.
         """
         super().__init__()
-        self.config = config
+        
+        # Update default configuration
+        default_config = {
+            'num_layers': 6,
+            'num_heads': 8,
+            'hidden_dim': 512,
+            'ff_dim': 2048,
+            'dropout': 0.1,
+            'norm_first': True,  # Keep True for pre-normalization
+            'batch_first': True,
+            'enable_nested_tensor': False  # Set to False since we're using norm_first=True
+        }
+        
+        # Merge with provided config
+        self.config = {**default_config, **config}
 
         # Extract key parameters from config
         self.vocab_sizes = config["vocab_sizes"]
         self.num_loci = config["num_loci"]
         self.embedding_dim = config["embedding_dim"]
-        self.num_heads = config["num_heads"]
-        self.num_layers = config["num_layers"]
-        self.ff_dim = config["ff_dim"]
-        self.dropout_rate = config["dropout"]
-        # Encoder input seq_len is typically fixed, e.g., 2 alleles per locus
         self.input_seq_len = self.num_loci * 2
         self.covariate_dim = config.get("covariate_dim", 0)
         self.latent_dim = config.get("latent_dim", 64) # Get latent dim from config
@@ -61,21 +70,24 @@ class GenotypeEncoderTransformer(nn.Module):
         # 3. Transformer Encoder Layers
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.embedding_dim,
-            nhead=self.num_heads,
-            dim_feedforward=self.ff_dim,
-            dropout=self.dropout_rate,
-            batch_first=True,
-            norm_first=True # Use pre-norm for potentially better stability
+            nhead=self.config['num_heads'],
+            dim_feedforward=self.config['ff_dim'],
+            dropout=self.config['dropout'],
+            activation='gelu',
+            batch_first=self.config['batch_first'],
+            norm_first=self.config['norm_first']
         )
-        # Need LayerNorm instance if using default TransformerEncoder wrapper with norm_first=True
-        encoder_norm = nn.LayerNorm(self.embedding_dim)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.num_layers, norm=encoder_norm)
+        
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=self.config['num_layers']
+        )
 
         # 4. Output Head (to produce parameters for the posterior distribution)
         #    Projecting pooled output to mean and log_var for a Gaussian posterior.
         self.output_head = nn.Linear(self.embedding_dim, self.latent_dim * 2) # For mean + log_var
 
-        self.dropout = nn.Dropout(self.dropout_rate)
+        self.dropout = nn.Dropout(self.config['dropout'])
 
         logging.info("GenotypeEncoderTransformer initialized with sub-modules.")
 
