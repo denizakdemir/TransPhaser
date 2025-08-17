@@ -16,7 +16,7 @@ TransPhaser is a suite for phasing HLA genotypes using transformer-based models.
 
 1.  **Clone the repository:**
     ```bash
-    git clone <repository-url> # Replace with the actual URL once pushed
+    git clone git@github.com:denizakdemir/TransPhaser.git
     cd TransPhaser
     ```
 2.  **Create and activate a virtual environment (recommended):**

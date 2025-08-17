@@ -130,6 +130,10 @@ cython_debug/
 # VSCode settings
 .vscode/
 
+# macOS
+.DS_Store
+**/.DS_Store
+
 # TransPhaser specific ignores
 *.pt
 examples/output/
