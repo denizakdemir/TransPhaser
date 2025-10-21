@@ -164,29 +164,30 @@ class HLAPhasingTrainer:
 
     def evaluate(self):
         """Runs evaluation on the validation set."""
-        self.model.eval() # Set model to evaluation mode
+        self.model.eval()  # Set model to evaluation mode
         total_val_loss = 0.0
         start_time = time.time()
 
-        # Removed torch.no_grad() to potentially allow anomaly detection or fix NaN issue
-        for batch_idx, batch in enumerate(self.val_loader):
-            batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        # Use no_grad() to disable gradient computation during validation
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(self.val_loader):
+                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-            # --- Forward pass ---
-            try: # Ensure correct indentation for the whole block
-                model_output = self.model(batch)
-                loss = self.loss_fn(model_output) # Calculate full ELBO loss
-                if torch.isnan(loss):
-                    logging.warning(f"NaN detected in validation loss for batch {batch_idx}. Skipping batch.")
-                    continue # Skip batch if loss is NaN
-                total_val_loss += loss.item()
-            except KeyError as e: # Ensure correct indentation
-                logging.error(f"Validation - Missing key in batch or model_output for loss calculation: {e}")
-                continue
-            except Exception as e: # Ensure correct indentation
-                # If anomaly detection is on, this might catch the specific error
-                logging.error(f"Validation - Error during forward pass or loss calculation: {e}", exc_info=True) # Log traceback
-                continue # Continue to next batch even if one fails
+                # --- Forward pass ---
+                try:  # Ensure correct indentation for the whole block
+                    model_output = self.model(batch)
+                    loss = self.loss_fn(model_output)  # Calculate full ELBO loss
+                    if torch.isnan(loss):
+                        logging.warning(f"NaN detected in validation loss for batch {batch_idx}. Skipping batch.")
+                        continue  # Skip batch if loss is NaN
+                    total_val_loss += loss.item()
+                except KeyError as e:  # Ensure correct indentation
+                    logging.error(f"Validation - Missing key in batch or model_output for loss calculation: {e}")
+                    continue
+                except Exception as e:  # Ensure correct indentation
+                    # If anomaly detection is on, this might catch the specific error
+                    logging.error(f"Validation - Error during forward pass or loss calculation: {e}", exc_info=True)  # Log traceback
+                    continue  # Continue to next batch even if one fails
 
         # Calculate average loss, handle case where all batches were skipped
         if len(self.val_loader) > 0 and total_val_loss > 0: # Check if any loss was accumulated

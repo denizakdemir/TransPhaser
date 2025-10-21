@@ -1,4 +1,5 @@
-import random # For sampling
+import random  # For sampling
+import logging  # For logging warnings and errors
 # Import necessary components
 from transphaser.compatibility import HaplotypeCompatibilityChecker, HLACompatibilityRules
 

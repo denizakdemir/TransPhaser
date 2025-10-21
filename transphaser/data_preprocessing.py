@@ -122,6 +122,12 @@ class AlleleTokenizer:
          # Next available ID for non-special tokens - this should be locus-specific
          # self.next_token_id = len(self.special_tokens) # Removed global counter
 
+        # Add properties for convenient access to special token IDs
+        self.pad_token_id = self.special_tokens["PAD"]
+        self.unk_token_id = self.special_tokens["UNK"]
+        self.bos_token_id = self.special_tokens["BOS"]
+        self.eos_token_id = self.special_tokens["EOS"]
+
     def build_vocabulary(self, locus, alleles):
         """
         Builds or updates the vocabulary for a specific locus.
@@ -412,21 +418,21 @@ class HLADataset(Dataset):
         sample_covariates = self.covariates[idx]
 
         # Tokenize genotype based on the specified loci_order
-        genotype_tokens = []
+        # Validate genotype length matches expected number of loci
         if len(sample_genotype) != len(self.loci_order):
-             logging.warning(f"Sample {idx} genotype length ({len(sample_genotype)}) mismatch with loci_order length ({len(self.loci_order)}).")
-             # Handle mismatch, e.g., pad or raise error depending on desired behavior
-             # For now, proceed but this might cause errors later
+            raise ValueError(
+                f"Sample {idx}: Genotype has {len(sample_genotype)} loci but "
+                f"expected {len(self.loci_order)} (loci_order). "
+                f"This indicates a data preprocessing error. Check that all samples "
+                f"have genotypes for all required loci in the correct order."
+            )
 
+        genotype_tokens = []
         for i, locus in enumerate(self.loci_order):
-            if i < len(sample_genotype): # Check index bounds
-                locus_alleles = sample_genotype[i]
-                token1 = self.tokenizer.tokenize(locus, locus_alleles[0])
-                token2 = self.tokenizer.tokenize(locus, locus_alleles[1])
-                genotype_tokens.extend([token1, token2])
-            else:
-                 # Handle cases where sample_genotype is shorter than loci_order (e.g., pad)
-                 genotype_tokens.extend([self.pad_token_id, self.pad_token_id])
+            locus_alleles = sample_genotype[i]
+            token1 = self.tokenizer.tokenize(locus, locus_alleles[0])
+            token2 = self.tokenizer.tokenize(locus, locus_alleles[1])
+            genotype_tokens.extend([token1, token2])
 
 
         # Convert to tensors

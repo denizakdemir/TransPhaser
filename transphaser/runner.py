@@ -450,12 +450,8 @@ class HLAPhasingRunner:
 
                 try:
                     # Assuming model.predict_haplotypes predicts H1 tokens
-                    # Pass necessary inputs from pred_batch
-                    predicted_tokens_h1 = self.model.predict_haplotypes(
-                        genotype_tokens=pred_batch['genotype_tokens'],
-                        covariates=pred_batch['covariates']
-                        # Add other args if needed by predict_haplotypes
-                    ) # Shape: (batch, num_loci)
+                    # Pass the batch dictionary (method expects batch dict, not keyword args)
+                    predicted_tokens_h1 = self.model.predict_haplotypes(pred_batch)  # Shape: (batch, num_loci)
 
                     # Derive H2 (logic copied from example script - needs verification/refinement)
                     genotype_tokens_batch = pred_batch['genotype_tokens'] # Already on device
