@@ -67,51 +67,12 @@ class HLAPhasingMetrics:
         num_loci = len(alleles_true_h1)
         if not (len(alleles_pred_h1) == num_loci and len(alleles_pred_h2) == num_loci and len(alleles_true_h2) == num_loci):
              logging.warning("Haplotype lengths differ for Switch Error calculation. Returning high error count.")
-             return num_loci -1 # Max possible switches
+             return num_loci - 1  # Max possible switches
 
-        switches = 0
-        current_phase_correct = True # Assume starting phase is correct
-
-        for i in range(num_loci):
-            # Check if the current phase matches the true phase at this locus
-            locus_phase_correct = (alleles_pred_h1[i] == alleles_true_h1[i] and alleles_pred_h2[i] == alleles_true_h2[i])
-
-            # If the locus phase is incorrect, we might need a switch
-            if not locus_phase_correct:
-                # Check if the alternative phasing (swapped prediction) matches the truth
-                alternative_phase_correct = (alleles_pred_h1[i] == alleles_true_h2[i] and alleles_pred_h2[i] == alleles_true_h1[i])
-
-                if alternative_phase_correct:
-                    # The phase is flipped compared to the current alignment assumption
-                    if current_phase_correct:
-                        # We were assuming correct phase, but it's flipped now -> switch needed
-                        if i > 0: # Don't count switch at the very beginning
-                             switches += 1
-                        current_phase_correct = False # Now assuming flipped phase
-                else:
-                    # Neither direct nor alternative phase matches - this indicates an allele mismatch (Hamming error)
-                    # Switch error doesn't count allele mismatches directly, but phase consistency.
-                    # If the current phase assumption was wrong, we need a switch.
-                    if not current_phase_correct and i > 0:
-                         switches += 1
-                         current_phase_correct = True # Assume it switched back to correct due to mismatch? Or keep assumption?
-                         # Let's assume a mismatch forces a re-evaluation, potentially switching back.
-                         # This logic can be complex; simpler versions might just count transitions
-                         # between matching and non-matching states relative to one alignment.
-
-                    # Alternative simpler logic: Count switches between phase states (match vs mismatch)
-                    # This might be closer to standard definitions. Let's try that.
-
-                    pass # Keep current_phase_correct as is, mismatch doesn't flip assumption here.
-
-
-            # More standard switch error logic:
-            # Compare the phase state at locus i vs i-1
-            # State 0: pred_h1[i] == true_h1[i] (and pred_h2[i] == true_h2[i])
-            # State 1: pred_h1[i] == true_h2[i] (and pred_h2[i] == true_h1[i])
-            # State -1: Mismatch (neither matches)
-
-        # --- Reimplementing Switch Error based on phase state transitions ---
+        # Calculate switch errors based on phase state transitions
+        # State 0: pred_h1[i] == true_h1[i] (and pred_h2[i] == true_h2[i])
+        # State 1: pred_h1[i] == true_h2[i] (and pred_h2[i] == true_h1[i])
+        # State -1: Mismatch (neither matches)
         switches = 0
         # Determine initial phase state (match = 0, flip = 1, mismatch = -1)
         if alleles_pred_h1[0] == alleles_true_h1[0] and alleles_pred_h2[0] == alleles_true_h2[0]:

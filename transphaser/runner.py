@@ -417,113 +417,177 @@ class HLAPhasingRunner:
             # self._save_model("failed_training_model.pt")
             raise # Re-raise the exception
 
+    def _prepare_prediction_batch(self, batch):
+        """Prepares and validates a batch for prediction.
+
+        Args:
+            batch (dict): Raw batch from dataloader
+
+        Returns:
+            tuple: (pred_batch, sample_ids) or (None, None) if batch is invalid
+        """
+        pred_batch = {}
+        required_keys = ['genotype_tokens', 'covariates']
+
+        for key in required_keys:
+            if key not in batch:
+                logging.error(f"Missing key '{key}' in prediction batch. Skipping batch.")
+                return None, None
+            if isinstance(batch[key], torch.Tensor):
+                pred_batch[key] = batch[key].to(self.device)
+            else:
+                logging.warning(f"Unexpected type for key '{key}': {type(batch[key])}")
+                pred_batch[key] = batch[key]
+
+        if 'sample_id' not in batch or not batch['sample_id']:
+            logging.error("Missing 'sample_id' in prediction batch. Cannot track predictions.")
+            return None, None
+
+        return pred_batch, batch['sample_id']
+
+    def _derive_h2_from_h1(self, h1_tokens, genotype_tokens, sample_ids):
+        """Derives H2 tokens from H1 predictions and genotype constraints.
+
+        Args:
+            h1_tokens (torch.Tensor): Predicted H1 tokens, shape (batch, num_loci)
+            genotype_tokens (torch.Tensor): Genotype tokens, shape (batch, num_loci * 2)
+            sample_ids: Sample identifiers for logging
+
+        Returns:
+            torch.Tensor: Derived H2 tokens, shape (batch, num_loci)
+        """
+        num_loci = len(self.config.data.locus_columns)
+        h2_tokens = torch.zeros_like(h1_tokens)
+        pad_token_id = self.tokenizer.pad_token_id
+
+        for i in range(h1_tokens.size(0)):
+            for j in range(num_loci):
+                # Get genotype alleles for this locus (flattened: [a1, a2, b1, b2, ...])
+                token1 = genotype_tokens[i, j * 2]
+                token2 = genotype_tokens[i, j * 2 + 1]
+                h1_token = h1_tokens[i, j]
+
+                # Handle padding
+                if h1_token == pad_token_id:
+                    h2_tokens[i, j] = pad_token_id
+                    continue
+
+                # Derive H2 based on genotype compatibility
+                if token1 == h1_token and token2 != pad_token_id:
+                    h2_tokens[i, j] = token2
+                elif token2 == h1_token and token1 != pad_token_id:
+                    h2_tokens[i, j] = token1
+                elif token1 == token2:  # Homozygous
+                    h2_tokens[i, j] = token1
+                else:
+                    # Fallback for incompatible predictions
+                    logging.warning(
+                        f"Sample {sample_ids[i]}, Locus {self.config.data.locus_columns[j]}: "
+                        f"H1 token {h1_token.item()} incompatible with genotype "
+                        f"({token1.item()}, {token2.item()}). Using fallback."
+                    )
+                    fallback = token1 if token1 != pad_token_id else token2
+                    h2_tokens[i, j] = fallback if fallback != pad_token_id else self.tokenizer.unk_token_id
+
+        return h2_tokens
+
+    def _detokenize_haplotype_pair(self, h1_tokens, h2_tokens):
+        """Converts token tensors to haplotype string pairs.
+
+        Args:
+            h1_tokens (torch.Tensor): H1 tokens, shape (batch, num_loci)
+            h2_tokens (torch.Tensor): H2 tokens, shape (batch, num_loci)
+
+        Returns:
+            list: List of sorted haplotype string pairs (tuples)
+        """
+        num_loci = len(self.config.data.locus_columns)
+        batch_size = h1_tokens.shape[0]
+        haplotype_pairs = []
+
+        for i in range(batch_size):
+            # Detokenize each locus
+            h1_alleles = [
+                self.tokenizer.detokenize(self.config.data.locus_columns[j], h1_tokens[i, j].item())
+                for j in range(num_loci)
+            ]
+            h2_alleles = [
+                self.tokenizer.detokenize(self.config.data.locus_columns[j], h2_tokens[i, j].item())
+                for j in range(num_loci)
+            ]
+
+            # Join alleles, filtering out None (e.g., from PAD tokens)
+            h1_str = "_".join(filter(None, h1_alleles))
+            h2_str = "_".join(filter(None, h2_alleles))
+
+            # Store sorted pair for consistency
+            haplotype_pairs.append(tuple(sorted((h1_str, h2_str))))
+
+        return haplotype_pairs
+
     def _predict(self):
         """Performs haplotype prediction on the validation set."""
         logging.info("Predicting haplotypes for the validation set...")
         self.model.eval()
         all_predicted_haplotypes = []
         all_individual_ids = []
-        predict_loader = self.val_loader # Use the validation loader
 
         with torch.no_grad():
-            for batch in predict_loader:
-                # Ensure all required inputs for prediction are present and on device
-                pred_batch = {}
-                required_keys = ['genotype_tokens', 'covariates'] # Add others if model.predict needs them
-                for key in required_keys:
-                    if key not in batch:
-                        logging.error(f"Missing key '{key}' in prediction batch. Skipping batch.")
-                        continue # Or handle differently
-                    # Handle covariates potentially being empty (shape [batch_size, 0])
-                    if isinstance(batch[key], torch.Tensor):
-                         pred_batch[key] = batch[key].to(self.device)
-                    else: # Should not happen if dataset prepares tensors correctly
-                         logging.warning(f"Unexpected type for key '{key}' in prediction batch: {type(batch[key])}")
-                         pred_batch[key] = batch[key] # Pass as is? Risky.
-
-                # Check if we have IndividualIDs to track predictions
-                if 'sample_id' not in batch or not batch['sample_id']:
-                     logging.error("Missing 'sample_id' in prediction batch. Cannot track predictions. Skipping batch.")
-                     continue
-
-                sample_ids_batch = batch['sample_id'] # Get original IDs/indices
+            for batch in self.val_loader:
+                # Prepare and validate batch
+                pred_batch, sample_ids = self._prepare_prediction_batch(batch)
+                if pred_batch is None:
+                    continue
 
                 try:
-                    # Assuming model.predict_haplotypes predicts H1 tokens
-                    # Pass necessary inputs from pred_batch
-                    predicted_tokens_h1 = self.model.predict_haplotypes(
-                        genotype_tokens=pred_batch['genotype_tokens'],
-                        covariates=pred_batch['covariates']
-                        # Add other args if needed by predict_haplotypes
-                    ) # Shape: (batch, num_loci)
+                    # Predict H1 tokens
+                    predicted_h1 = self.model.predict_haplotypes(pred_batch)
 
-                    # Derive H2 (logic copied from example script - needs verification/refinement)
-                    genotype_tokens_batch = pred_batch['genotype_tokens'] # Already on device
-                    num_loci = len(self.config.data.locus_columns)
-                    predicted_tokens_h2 = torch.zeros_like(predicted_tokens_h1)
-                    for i in range(predicted_tokens_h1.size(0)):
-                        for j in range(num_loci):
-                            # Genotype tokens are flattened pairs [locus1_a1, locus1_a2, locus2_a1, ...]
-                            locus_genotype_token1 = genotype_tokens_batch[i, j * 2]
-                            locus_genotype_token2 = genotype_tokens_batch[i, j * 2 + 1]
-                            pred_h1_token = predicted_tokens_h1[i, j]
+                    # Derive H2 tokens from H1 and genotype
+                    predicted_h2 = self._derive_h2_from_h1(
+                        predicted_h1,
+                        pred_batch['genotype_tokens'],
+                        sample_ids
+                    )
 
-                            # Handle padding tokens if necessary
-                            pad_token_id = self.tokenizer.pad_token_id
-                            if pred_h1_token == pad_token_id:
-                                predicted_tokens_h2[i, j] = pad_token_id
-                                continue
+                    # Convert tokens to strings
+                    batch_pairs = self._detokenize_haplotype_pair(predicted_h1, predicted_h2)
 
-                            # Basic H2 derivation logic
-                            if locus_genotype_token1 == pred_h1_token and locus_genotype_token2 != pad_token_id:
-                                predicted_tokens_h2[i, j] = locus_genotype_token2
-                            elif locus_genotype_token2 == pred_h1_token and locus_genotype_token1 != pad_token_id:
-                                predicted_tokens_h2[i, j] = locus_genotype_token1
-                            elif locus_genotype_token1 == locus_genotype_token2: # Homozygous case
-                                predicted_tokens_h2[i, j] = locus_genotype_token1 # H2 must be the same
-                            else:
-                                # This case implies pred_h1 is not one of the genotype alleles (or one is pad)
-                                # This shouldn't happen if model predicts valid alleles from genotype
-                                logging.warning(f"Sample {sample_ids_batch[i]}, Locus {self.config.data.locus_columns[j]}: Predicted H1 token {pred_h1_token.item()} not compatible with genotype ({locus_genotype_token1.item()}, {locus_genotype_token2.item()}). Using fallback for H2.")
-                                # Fallback: use the first non-pad allele from genotype? Or UNK?
-                                fallback_token = locus_genotype_token1 if locus_genotype_token1 != pad_token_id else locus_genotype_token2
-                                predicted_tokens_h2[i, j] = fallback_token if fallback_token != pad_token_id else self.tokenizer.unk_token_id # Use UNK if both are pad?
-
-                    # Detokenize and format
-                    batch_size = predicted_tokens_h1.shape[0]
-                    for i in range(batch_size):
-                        hap1_alleles = [self.tokenizer.detokenize(self.config.data.locus_columns[j], predicted_tokens_h1[i, j].item()) for j in range(num_loci)]
-                        hap2_alleles = [self.tokenizer.detokenize(self.config.data.locus_columns[j], predicted_tokens_h2[i, j].item()) for j in range(num_loci)]
-                        # Join alleles, handling potential None from detokenize (e.g., for PAD)
-                        hap1_str = "_".join(filter(None, hap1_alleles))
-                        hap2_str = "_".join(filter(None, hap2_alleles))
-                        # Store sorted pair
-                        all_predicted_haplotypes.append(tuple(sorted((hap1_str, hap2_str))))
-                        all_individual_ids.append(sample_ids_batch[i]) # Append the actual ID
+                    # Store results
+                    all_predicted_haplotypes.extend(batch_pairs)
+                    all_individual_ids.extend(sample_ids)
 
                 except Exception as e:
                     logging.error(f"Error during prediction for batch: {e}", exc_info=True)
-                    # Continue to next batch or stop? Continue for now.
                     continue
 
+        # Save predictions
+        self._save_predictions(all_predicted_haplotypes, all_individual_ids)
 
-        # Create DataFrame only if predictions were generated
-        if all_individual_ids:
-            self.predictions_df = pd.DataFrame({
-                'IndividualID': all_individual_ids,
-                'Predicted_Haplotype1': [haps[0] for haps in all_predicted_haplotypes],
-                'Predicted_Haplotype2': [haps[1] for haps in all_predicted_haplotypes]
-            })
-            # Save predictions
-            pred_file = os.path.join(self.output_dir, "predictions.csv")
-            try:
-                self.predictions_df.to_csv(pred_file, index=False)
-                logging.info(f"Predictions saved to {pred_file}")
-            except Exception as e:
-                logging.error(f"Failed to save predictions to {pred_file}: {e}")
-        else:
+    def _save_predictions(self, haplotype_pairs, individual_ids):
+        """Saves predictions to CSV file.
+
+        Args:
+            haplotype_pairs (list): List of predicted haplotype pairs
+            individual_ids (list): Corresponding sample IDs
+        """
+        if not individual_ids:
             logging.warning("No predictions were generated.")
-            self.predictions_df = pd.DataFrame() # Create empty dataframe
+            self.predictions_df = pd.DataFrame()
+            return
+
+        self.predictions_df = pd.DataFrame({
+            'IndividualID': individual_ids,
+            'Predicted_Haplotype1': [haps[0] for haps in haplotype_pairs],
+            'Predicted_Haplotype2': [haps[1] for haps in haplotype_pairs]
+        })
+
+        pred_file = os.path.join(self.output_dir, "predictions.csv")
+        try:
+            self.predictions_df.to_csv(pred_file, index=False)
+            logging.info(f"Predictions saved to {pred_file}")
+        except Exception as e:
+            logging.error(f"Failed to save predictions to {pred_file}: {e}")
 
 
     def _evaluate(self):

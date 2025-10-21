@@ -214,34 +214,38 @@ class HaplotypeDecoderTransformer(nn.Module):
         # We use output[:, i, :] to predict allele i+1.
         # The output sequence length matches the input sequence length (`seq_len`).
         all_logits = {}
-        # The loop should go up to seq_len, using output from step i to predict locus i+1
-        for i in range(seq_len): # Iterate based on input seq len (BOS + alleles processed so far)
-             # Ensure we don't try to get logits for a locus beyond the defined number
-             if i < self.num_loci:
-                 locus_name = self.loci_order[i] # Get locus name for the allele being predicted (allele i+1)
-                 # Use output from position i (after processing BOS or allele i) to predict allele i+1
-                 locus_hidden_state = output[:, i, :] # Shape: (batch, embed_dim)
-                 # --- Add hidden state clamping for stability ---
-                 locus_hidden_state = torch.clamp(locus_hidden_state, min=-10, max=10) # Clamp hidden state
-                 # --- End clamping ---
-                 # REMOVED redundant application of final norm: self.transformer_layers.norm()
-                 # Use the hidden state directly from the transformer layers
-                 all_logits[locus_name] = self.output_heads[locus_name](locus_hidden_state) # Shape: (batch, vocab_size_for_locus)
-             # else: # This would correspond to predicting EOS based on the last allele's hidden state
-             #     pass # No specific EOS head defined here
+        # Iterate up to num_loci to generate predictions for each locus
+        # Position i in the output corresponds to the hidden state after seeing tokens 0..i
+        # This is used to predict the allele at locus i (position i+1 in the full sequence)
+        num_predictions = min(seq_len, self.num_loci)  # Ensure we don't exceed defined loci
+        for i in range(num_predictions):
+            locus_name = self.loci_order[i]  # Get locus name for the allele being predicted
+            # Use output from position i (after processing BOS or allele i) to predict allele i+1
+            locus_hidden_state = output[:, i, :]  # Shape: (batch, embed_dim)
+            # --- Add hidden state clamping for stability ---
+            locus_hidden_state = torch.clamp(locus_hidden_state, min=-10, max=10)  # Clamp hidden state
+            # --- End clamping ---
+            # REMOVED redundant application of final norm: self.transformer_layers.norm()
+            # Use the hidden state directly from the transformer layers
+            all_logits[locus_name] = self.output_heads[locus_name](locus_hidden_state)  # Shape: (batch, vocab_size_for_locus)
 
         # Return the dictionary of logits per locus
-        # Keys are locus names, values are logits for predicting that locus's allele
         # Keys are locus names, values are logits for predicting that locus's allele
         return all_logits
 
 
     # Helper method to generate causal mask
     def _generate_square_subsequent_mask(self, sz: int) -> torch.Tensor:
-       """Generates a square causal mask for attending to previous positions."""
-       mask = (torch.triu(torch.ones(sz, sz, dtype=torch.bool)) == 1).transpose(0, 1)
-       # Fill with float('-inf') where mask is True (positions not allowed to attend)
-       # Fill with float(0.0) where mask is False (positions allowed to attend)
+       """Generates a square causal mask for attending to previous positions.
+
+       Returns a mask where future positions (upper triangular, excluding diagonal)
+       are set to -inf to prevent attention to future tokens.
+       """
+       # Create upper triangular mask (diagonal=1 excludes the diagonal itself)
+       # True values indicate positions that should be masked (cannot attend)
+       mask = torch.triu(torch.ones(sz, sz, dtype=torch.bool), diagonal=1)
+       # Fill with float('-inf') where mask is True (future positions)
+       # Fill with float(0.0) where mask is False (current and past positions)
        attn_mask = torch.zeros(sz, sz, dtype=torch.float)
        attn_mask.masked_fill_(mask, float('-inf'))
        return attn_mask

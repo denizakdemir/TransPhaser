@@ -1,15 +1,16 @@
 import torch
 import torch.nn.functional as F
-
-# Placeholder imports - will need model and tokenizer
-# from .decoder import HaplotypeDecoderTransformer
-# from .data_preprocessing import AlleleTokenizer
+import logging
 
 class AutoregressiveHaplotypeDecoder:
     """
     Handles the autoregressive generation process using a decoder model.
     Includes support for different sampling strategies like beam search,
     top-k, top-p, and temperature scaling.
+
+    NOTE: This is a work-in-progress implementation. Core generation logic
+    is currently stubbed. The main model uses HLAPhasingModel.predict_haplotypes()
+    instead of this class.
     """
     def __init__(self, transformer_model, tokenizer, max_length):
         """
@@ -31,7 +32,7 @@ class AutoregressiveHaplotypeDecoder:
 
         # Ensure model is in evaluation mode by default for generation
         self.model.eval()
-        print("Placeholder: AutoregressiveHaplotypeDecoder initialized.")
+        logging.debug("AutoregressiveHaplotypeDecoder initialized (WIP).")
 
     @torch.no_grad() # Disable gradient calculations during generation
     def generate(self, batch_size=1, start_tokens=None, covariates=None,
@@ -55,7 +56,7 @@ class AutoregressiveHaplotypeDecoder:
         Returns:
             torch.Tensor: The generated sequences of token IDs, shape (batch_size, max_length).
         """
-        print(f"Placeholder: Generating {batch_size} sequences using {strategy} strategy.")
+        logging.debug(f"Generating {batch_size} sequences using {strategy} strategy (WIP - returns stubs).")
 
         if strategy == 'beam' or num_beams > 1:
             return self._beam_search(batch_size, start_tokens, covariates, num_beams, temperature, top_k, top_p)
@@ -89,10 +90,8 @@ class AutoregressiveHaplotypeDecoder:
         return generated_sequence
 
     def _beam_search(self, batch_size, start_tokens, covariates, num_beams, temperature, top_k, top_p):
-        """Helper for beam search."""
-        # Placeholder implementation for beam search
-        print("Placeholder: Beam search not implemented yet.")
-        # Fallback to basic sampling for now
+        """Helper for beam search. Currently not implemented - falls back to greedy sampling."""
+        logging.warning("Beam search not yet implemented. Falling back to greedy sampling.")
         return self._sample(batch_size, start_tokens, covariates, 'greedy', temperature, top_k, top_p)
 
     def _apply_sampling_strategy(self, logits, strategy, temperature, top_k, top_p):
