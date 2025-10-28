@@ -136,19 +136,11 @@ class HLAPhasingRunner:
         )
 
         # --- Build Vocabulary ---
-        logging.info("Building allele vocabularies...")
-        alleles_by_locus = {}
-        for locus in loci:
-            locus_alleles = set()
-            # Handle potential missing values and different genotype formats ('/' or ',')
-            for genotype_str in df_unphased[locus].dropna():
-                 # Simple split assuming '/' or ',' - needs robust handling from parser ideally
-                 alleles = genotype_str.replace(',', '/').split('/')
-                 locus_alleles.update(a for a in alleles if a and a not in ["UNK", "<UNK>"]) # Filter empty/UNK
-            alleles_by_locus[locus] = list(locus_alleles)
-            tokenizer.build_vocabulary(locus, alleles_by_locus[locus])
-            logging.info(f"  {locus}: {tokenizer.get_vocab_size(locus)} tokens")
+        logging.info("Building allele vocabularies from DataFrame...")
+        tokenizer.build_vocabulary_from_dataframe(df_unphased, loci)
         self.vocab_sizes = {locus: tokenizer.get_vocab_size(locus) for locus in loci}
+        for locus in loci:
+            logging.info(f"  {locus}: {tokenizer.get_vocab_size(locus)} tokens")
 
         # --- Parse Genotypes (using the parser) ---
         # Note: The parser expects specific input format, might need adjustment
@@ -157,23 +149,8 @@ class HLAPhasingRunner:
         # Let's assume parser works for now
         logging.info("Parsing genotypes...")
         # This parse method might need adjustment based on actual parser implementation vs DataFrame format
-        # train_genotypes_parsed, train_covariates_df = parser.parse(train_df)
-        # val_genotypes_parsed, val_covariates_df = parser.parse(val_df)
-        # --- Manual parsing like in example script (TEMPORARY until parser is robust) ---
-        def parse_df_genotypes_temp(df, loci_list):
-            parsed = []
-            for _, row in df.iterrows():
-                sample_genotype = []
-                for locus in loci_list:
-                    alleles = row[locus].replace(',', '/').split('/')
-                    sample_genotype.append(sorted([a for a in alleles if a])) # Sort and filter empty
-                parsed.append(sample_genotype)
-            return parsed
-        train_genotypes_parsed = parse_df_genotypes_temp(train_df, loci)
-        val_genotypes_parsed = parse_df_genotypes_temp(val_df, loci)
-        train_covariates_df = train_df[covariate_cols] if covariate_cols else pd.DataFrame(index=train_df.index) # Handle case with no covariates
-        val_covariates_df = val_df[covariate_cols] if covariate_cols else pd.DataFrame(index=val_df.index)
-        # --- End Temporary Parsing ---
+        train_genotypes_parsed, train_covariates_df = parser.parse(train_df)
+        val_genotypes_parsed, val_covariates_df = parser.parse(val_df)
 
 
         # --- Encode Covariates ---
@@ -660,11 +637,28 @@ class HLAPhasingRunner:
             self._predict()
             self._evaluate()
         except Exception as e:
-             logging.error(f"Workflow execution failed: {e}", exc_info=True)
-             # Optionally add more specific error handling or cleanup
+            logging.error(f"Workflow execution failed: {e}", exc_info=True)
         finally:
-            # Finalize should run even if errors occurred during the main workflow
             self._finalize()
+
+    def train(self):
+        """Runs the training and validation loops."""
+        self._set_seeds()
+        df_unphased, df_phased_truth = self._load_data()
+        self._preprocess_data(df_unphased, df_phased_truth)
+        self._build_model()
+        self._train_model()
+        self._finalize()
+
+    def predict(self):
+        """Runs the prediction and evaluation loops."""
+        self._set_seeds()
+        df_unphased, df_phased_truth = self._load_data()
+        self._preprocess_data(df_unphased, df_phased_truth)
+        self._build_model()
+        self._predict()
+        self._evaluate()
+        self._finalize()
 
 # Example usage (if run directly, though typically instantiated and run)
 # if __name__ == '__main__':

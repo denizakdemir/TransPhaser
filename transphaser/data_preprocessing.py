@@ -155,6 +155,21 @@ class AlleleTokenizer:
                 self.locus_reverse_vocabularies[locus][next_id] = allele
                 next_id += 1 # Corrected indentation
 
+    def build_vocabulary_from_dataframe(self, df, locus_columns):
+        """
+        Builds vocabularies for multiple loci directly from a DataFrame.
+
+        Args:
+            df (pd.DataFrame): The DataFrame containing genotype data.
+            locus_columns (list): A list of column names for the loci.
+        """
+        for locus in locus_columns:
+            locus_alleles = set()
+            for genotype_str in df[locus].dropna():
+                alleles = genotype_str.replace(',', '/').split('/')
+                locus_alleles.update(a for a in alleles if a and a not in ["UNK", "<UNK>"])
+            self.build_vocabulary(locus, list(locus_alleles))
+
     def tokenize(self, locus, allele):
         """
         Converts an allele string to its token ID for a specific locus.
