@@ -227,6 +227,52 @@ class TestHLAPhasingRunner(unittest.TestCase):
         mock_reporter_instance_local.generate_report.assert_called() # Check report generated
         mock_reporter_instance_local.plot_training_curves.assert_called_once() # Check plot generated
 
+    @patch('transphaser.runner.HLAPhasingRunner._set_seeds')
+    @patch('transphaser.runner.HLAPhasingRunner._load_data')
+    @patch('transphaser.runner.HLAPhasingRunner._preprocess_data')
+    @patch('transphaser.runner.HLAPhasingRunner._build_model')
+    @patch('transphaser.runner.HLAPhasingRunner.load_model')
+    @patch('transphaser.runner.HLAPhasingRunner._predict')
+    @patch('transphaser.runner.HLAPhasingRunner._evaluate')
+    @patch('transphaser.runner.HLAPhasingRunner._finalize')
+    def test_predict_workflow_calls(self, mock_finalize, mock_evaluate, mock_predict, mock_load_model, mock_build_model, mock_preprocess_data, mock_load_data, mock_set_seeds):
+        """Test that the predict method calls workflow steps in order and handles model_path."""
+        mock_load_data.return_value = (pd.DataFrame(), pd.DataFrame())
+        runner = HLAPhasingRunner(config=self.config)
+
+        # Test without model_path
+        runner.predict()
+        mock_set_seeds.assert_called_once()
+        mock_load_data.assert_called_once()
+        mock_preprocess_data.assert_called_once()
+        mock_build_model.assert_called_once()
+        mock_load_model.assert_not_called()
+        mock_predict.assert_called_once()
+        mock_evaluate.assert_called_once()
+        mock_finalize.assert_called_once()
+
+        # Reset mocks
+        mock_set_seeds.reset_mock()
+        mock_load_data.reset_mock()
+        mock_preprocess_data.reset_mock()
+        mock_build_model.reset_mock()
+        mock_load_model.reset_mock()
+        mock_predict.reset_mock()
+        mock_evaluate.reset_mock()
+        mock_finalize.reset_mock()
+
+        # Test with model_path
+        model_path = "dummy/path/model.pt"
+        runner.predict(model_path=model_path)
+        mock_set_seeds.assert_called_once()
+        mock_load_data.assert_called_once()
+        mock_preprocess_data.assert_called_once()
+        mock_build_model.assert_called_once()
+        mock_load_model.assert_called_once_with(model_path)
+        mock_predict.assert_called_once()
+        mock_evaluate.assert_called_once()
+        mock_finalize.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

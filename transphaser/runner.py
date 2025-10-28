@@ -259,35 +259,40 @@ class HLAPhasingRunner:
         num_loci = len(self.config.data.locus_columns)
 
         # Prepare model configs (adjust based on actual HLAPhasingModel needs)
-        # Pass the whole config sub-dictionaries if the model expects them
-        encoder_cfg = self.config.model.encoder.dict() if hasattr(self.config.model, 'encoder') else self.config.model.dict()
-        decoder_cfg = self.config.model.decoder.dict() if hasattr(self.config.model, 'decoder') else self.config.model.dict()
-
-        # Add/override specific keys derived during preprocessing
-        # Ensure these keys match what the model components expect
         common_updates = {
             "vocab_sizes": self.vocab_sizes,
             "num_loci": num_loci,
             "covariate_dim": self.covariate_dim,
             "loci_order": self.config.data.locus_columns,
-            "padding_idx": self.tokenizer.pad_token_id # Assuming tokenizer has pad_token_id
+            "padding_idx": self.tokenizer.pad_token_id
         }
-        encoder_cfg.update(common_updates)
-        decoder_cfg.update(common_updates)
-        # Add latent_dim if it's defined at the top model level
+
+        # Start with a copy of the common parameters
+        encoder_cfg = common_updates.copy()
+        decoder_cfg = common_updates.copy()
+
+        # Update with general model parameters
+        if hasattr(self.config.model, 'embedding_dim'):
+            encoder_cfg['embedding_dim'] = self.config.model.embedding_dim
+            decoder_cfg['embedding_dim'] = self.config.model.embedding_dim
         if hasattr(self.config.model, 'latent_dim'):
-             encoder_cfg['latent_dim'] = self.config.model.latent_dim
-             decoder_cfg['latent_dim'] = self.config.model.latent_dim
+            encoder_cfg['latent_dim'] = self.config.model.latent_dim
+            decoder_cfg['latent_dim'] = self.config.model.latent_dim
+
+        # Update with specific encoder/decoder configurations
+        if hasattr(self.config.model, 'encoder') and self.config.model.encoder:
+            encoder_cfg.update(self.config.model.encoder.model_dump())
+        if hasattr(self.config.model, 'decoder') and self.config.model.decoder:
+            decoder_cfg.update(self.config.model.decoder.model_dump())
 
 
         self.model = HLAPhasingModel(
             num_loci=num_loci,
-            allele_vocabularies=self.tokenizer.locus_vocabularies, # Pass vocab dict
+            allele_vocabularies=self.tokenizer.locus_vocabularies,
             covariate_dim=self.covariate_dim,
             tokenizer=self.tokenizer,
             encoder_config=encoder_cfg,
             decoder_config=decoder_cfg,
-            latent_dim=self.config.model.latent_dim # Pass latent_dim here too
         ).to(self.device)
         logging.info(f"Model initialized with {sum(p.numel() for p in self.model.parameters() if p.requires_grad):,} trainable parameters.")
 
@@ -641,6 +646,42 @@ class HLAPhasingRunner:
         finally:
             self._finalize()
 
+    def save_model(self, filepath):
+        """Saves the model's state dictionary to a file."""
+        if not hasattr(self, 'model'):
+            logging.error("Model has not been built yet. Cannot save.")
+            return
+
+        try:
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            # Save the model state
+            torch.save(self.model.state_dict(), filepath)
+            logging.info(f"Model state saved successfully to {filepath}")
+        except Exception as e:
+            logging.error(f"Error saving model to {filepath}: {e}")
+            raise
+
+    def load_model(self, filepath):
+        """Loads the model's state dictionary from a file."""
+        if not hasattr(self, 'model'):
+            logging.error("Model has not been built yet. Cannot load.")
+            return
+
+        try:
+            # Load the state dictionary
+            state_dict = torch.load(filepath, map_location=self.device)
+            # Load it into the model
+            self.model.load_state_dict(state_dict)
+            self.model.to(self.device) # Ensure model is on the correct device
+            logging.info(f"Model state loaded successfully from {filepath}")
+        except FileNotFoundError:
+            logging.error(f"Model file not found at {filepath}")
+            raise
+        except Exception as e:
+            logging.error(f"Error loading model from {filepath}: {e}")
+            raise
+
     def train(self):
         """Runs the training and validation loops."""
         self._set_seeds()
@@ -650,12 +691,14 @@ class HLAPhasingRunner:
         self._train_model()
         self._finalize()
 
-    def predict(self):
+    def predict(self, model_path: str = None):
         """Runs the prediction and evaluation loops."""
         self._set_seeds()
         df_unphased, df_phased_truth = self._load_data()
         self._preprocess_data(df_unphased, df_phased_truth)
         self._build_model()
+        if model_path:
+            self.load_model(model_path)
         self._predict()
         self._evaluate()
         self._finalize()
