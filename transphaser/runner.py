@@ -534,34 +534,25 @@ class HLAPhasingRunner:
 
         with torch.no_grad():
             for batch in self.val_loader:
-                # Prepare and validate batch
                 pred_batch, sample_ids = self._prepare_prediction_batch(batch)
                 if pred_batch is None:
                     continue
 
                 try:
-                    # Predict H1 tokens
-                    predicted_h1 = self.model.predict_haplotypes(pred_batch)
-
-                    # Derive H2 tokens from H1 and genotype
-                    predicted_h2 = self._derive_h2_from_h1(
-                        predicted_h1,
-                        pred_batch['genotype_tokens'],
-                        sample_ids
+                    predicted_tokens_h1 = self.model.predict_haplotypes(pred_batch)
+                    predicted_tokens_h2 = self._derive_h2_from_h1(
+                        predicted_tokens_h1, pred_batch['genotype_tokens'], sample_ids
+                    )
+                    batch_haplotype_pairs = self._detokenize_haplotype_pair(
+                        predicted_tokens_h1, predicted_tokens_h2
                     )
 
-                    # Convert tokens to strings
-                    batch_pairs = self._detokenize_haplotype_pair(predicted_h1, predicted_h2)
-
-                    # Store results
-                    all_predicted_haplotypes.extend(batch_pairs)
+                    all_predicted_haplotypes.extend(batch_haplotype_pairs)
                     all_individual_ids.extend(sample_ids)
 
                 except Exception as e:
                     logging.error(f"Error during prediction for batch: {e}", exc_info=True)
-                    continue
 
-        # Save predictions
         self._save_predictions(all_predicted_haplotypes, all_individual_ids)
 
     def _save_predictions(self, haplotype_pairs, individual_ids):

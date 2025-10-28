@@ -128,13 +128,16 @@ class HLAPhasingModel(nn.Module):
             logging.warning(f"NaN or Inf detected in log_var from encoder!")
         # --- End DEBUG ---
 
-        # --- Add log_var clipping for stability ---
-        log_var = torch.clamp(log_var, min=-10, max=10) # Keep log_var clamping
-        # --- End clipping ---
-
-        # --- Re-introduce mu clipping for stability ---
-        mu = torch.clamp(mu, min=-10, max=10) # Clamp mu as well
-        # --- End clipping ---
+        # --- Stability Clamp ---
+        # Clamp mu and log_var to a reasonable range. This is a pragmatic step to prevent
+        # numerical instability (e.g., exp(log_var) becoming Inf or NaN) during training,
+        # which can be caused by outlier batches or unstable gradients early in training.
+        # While gradient clipping and normalization layers help, direct clamping provides a
+        # hard ceiling. The range [-10, 10] is chosen to be wide enough to not clip
+        # typical values but prevent extreme blow-ups.
+        log_var = torch.clamp(log_var, min=-10, max=10)
+        mu = torch.clamp(mu, min=-10, max=10)
+        # --- End Clamp ---
 
         # 2. Sample latent variable z from q(z|g, c) using reparameterization trick
         z = self.reparameterize(mu, log_var) # Shape: (batch_size, latent_dim)
