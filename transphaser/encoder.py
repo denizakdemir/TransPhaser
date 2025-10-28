@@ -162,8 +162,14 @@ class GenotypeEncoderTransformer(nn.Module):
             masked_output = encoder_output * padding_mask_inv.unsqueeze(-1) # Zero out padded embeddings
             summed_output = masked_output.sum(dim=1)
             num_non_padded = padding_mask_inv.sum(dim=1, keepdim=True) # (batch, 1)
-            # Avoid division by zero if a sample is fully padded (shouldn't happen with valid input)
-            pooled_output = summed_output / num_non_padded.clamp(min=1e-9)
+            # Avoid division by zero if a sample is fully padded
+            valid_samples_mask = (num_non_padded > 0).squeeze(-1)
+            pooled_output = torch.zeros(batch_size, self.embedding_dim, device=device)
+            # The following line is a no-op if valid_samples_mask is all False
+            pooled_output[valid_samples_mask] = (
+                summed_output[valid_samples_mask] /
+                num_non_padded[valid_samples_mask].clamp(min=1)
+            )
 
         # 7. Apply Output Head
         posterior_params = self.output_head(pooled_output) # (batch, latent_dim * 2)

@@ -10,8 +10,6 @@ This document provides a comprehensive blueprint of the Transphaser codebase. Th
 .
 ├── CODE_REVIEW_FINDINGS.md
 ├── README.md
-├── comprehensive_output/
-├── description.md
 ├── examples/
 ├── pyproject.toml
 ├── requirements.txt
@@ -22,7 +20,6 @@ This document provides a comprehensive blueprint of the Transphaser codebase. Th
 - **`transphaser/`**: The core source code for the HLA phasing model.
 - **`tests/`**: Unit tests for the components in `transphaser/`.
 - **`examples/`**: Example scripts and notebooks demonstrating how to use the `transphaser` library.
-- **`comprehensive_output/`**: Directory for storing comprehensive evaluation reports and results.
 - **`pyproject.toml`**: Project metadata and dependencies.
 - **`requirements.txt`**: Project dependencies.
 
