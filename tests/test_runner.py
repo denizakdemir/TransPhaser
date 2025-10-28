@@ -194,7 +194,7 @@ class TestHLAPhasingRunner(unittest.TestCase):
             # Check class instantiation using the mock provided by 'as'
             mock_parser_cls.assert_called_once()
             mock_tokenizer_cls.assert_called_once()
-            mock_tokenizer_cls.return_value.build_vocabulary.assert_called() # Check vocab build was called
+            mock_tokenizer_cls.return_value.build_vocabulary_from_dataframe.assert_called() # Check vocab build was called
             mock_cov_encoder_cls.assert_called_once()
             mock_cov_encoder_cls.return_value.fit_transform.assert_called_once() # Check fit_transform called
             mock_dataset_cls.assert_called() # Called for train and val
