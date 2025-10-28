@@ -28,21 +28,22 @@ class DataConfig(BaseModel):
     # Add other data-related params like validation rules etc.
 
 class ModelEncoderConfig(BaseModel): # Example nested config
-    hidden_dim: int = 128
+    ff_dim: int = 128
     num_layers: int = 2
+    num_heads: int = 2
     dropout: float = 0.1
     # Add other encoder-specific params
 
 class ModelDecoderConfig(BaseModel): # Example nested config
-    hidden_dim: int = 128
+    ff_dim: int = 128
     num_layers: int = 2
+    num_heads: int = 2
     dropout: float = 0.1
     # Add other decoder-specific params
 
 class ModelConfig(BaseModel):
     # Common params
     embedding_dim: int = 128
-    num_heads: int = 8
     # Removed num_layers, ff_dim, dropout as they might be encoder/decoder specific
     latent_dim: int = 64 # Example latent dimension for VAE
     # Nested encoder/decoder configs
