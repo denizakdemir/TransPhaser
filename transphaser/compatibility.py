@@ -189,8 +189,6 @@ class CompatibilityMaskGenerator:
             else:
                 # This case implies the partial_haplotype1 was somehow incompatible
                 # with the genotype. Depending on strictness, either raise error
-                # This case implies the partial_haplotype1 was somehow incompatible
-                # with the genotype. Depending on strictness, either raise error
                 # or allow nothing/UNK. Allowing nothing by default.
                 logging.warning(f"Incompatible partial haplotype '{partial_haplotype1}' provided for genotype {genotype} at locus {locus}.")
 
