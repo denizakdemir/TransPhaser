@@ -69,6 +69,28 @@ class TestGenotypeDataParser(unittest.TestCase):
         # We are not testing covariate parsing yet
         # self.assertIsNotNone(parsed_covariates)
 
+    def test_parse_genotype_slash_separated_format(self):
+        """Test parsing genotype data provided as slash-separated strings (common format)."""
+        locus_columns = ['HLA-A', 'HLA-B', 'HLA-DRB1']
+        covariate_columns = ['Population']
+        parser = GenotypeDataParser(locus_columns=locus_columns, covariate_columns=covariate_columns)
+        data = {
+            'HLA-A': ["A*01/A*02", "A*03/A*03", "A*04/A*05"], # Heterozygous and Homozygous
+            'HLA-B': ["B*07/B*08", "B*15/B*15", "B*01/B*03"], # Various combinations
+            'HLA-DRB1': ["DRB1*01/DRB1*02", "DRB1*03/DRB1*04", "DRB1*01/DRB1*01"],
+            'Population': ['EUR', 'ASN', 'AFR']
+        }
+        df = pd.DataFrame(data)
+        parsed_genotypes, parsed_covariates = parser.parse(df)
+
+        expected_genotypes = [
+            [['A*01', 'A*02'], ['B*07', 'B*08'], ['DRB1*01', 'DRB1*02']], # Sample 1
+            [['A*03', 'A*03'], ['B*15', 'B*15'], ['DRB1*03', 'DRB1*04']], # Sample 2
+            [['A*04', 'A*05'], ['B*01', 'B*03'], ['DRB1*01', 'DRB1*01']]  # Sample 3
+        ]
+        self.assertEqual(parsed_genotypes, expected_genotypes)
+        self.assertEqual(list(parsed_covariates['Population']), ['EUR', 'ASN', 'AFR'])
+
     def test_parse_genotype_list_format(self):
         """Test parsing genotype data provided as lists."""
         locus_columns = ['HLA-A', 'HLA-B']

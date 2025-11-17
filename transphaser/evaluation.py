@@ -458,24 +458,23 @@ class PhasingResultVisualizer:
     Generates visualizations for phasing results, such as likelihood distributions,
     uncertainty plots, or haplotype alignments.
     """
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, output_dir=None):
         """
         Initializes the PhasingResultVisualizer.
 
         Args:
             tokenizer: An initialized AlleleTokenizer instance.
+            output_dir: Optional output directory for saving plots. If None,
+                       plots must specify output paths when calling plot methods,
+                       otherwise they won't be saved.
         """
         # Uncommented and corrected the type check
         if not isinstance(tokenizer, AlleleTokenizer):
              raise TypeError("tokenizer must be an instance of AlleleTokenizer")
 
         self.tokenizer = tokenizer
-        # Store output_dir, needed for saving plots
-        # Assuming visualizer might be created independently or needs output dir
-        # Add output_dir to __init__? For now, assume it's handled externally or passed to methods.
-        # Let's add it to __init__ for consistency with Reporter
-        self.output_dir = "visualizer_output" # Default or get from config? Needs refinement.
-        os.makedirs(self.output_dir, exist_ok=True)
+        # Store output_dir, but don't create it unless it's actually used
+        self.output_dir = output_dir
 
         # Use the module-level flag and import
         self.plt = plt if MATPLOTLIB_AVAILABLE else None

@@ -3,6 +3,7 @@ import torch # Likely needed for metric calculations
 import torch.nn as nn # Added for mock model
 from unittest.mock import patch, MagicMock, ANY # Import mock utilities
 import numpy as np # Import numpy
+import tempfile # For temporary directories in tests
 
 # Placeholder for AlleleTokenizer (needed for mock)
 from transphaser.data_preprocessing import AlleleTokenizer # Reverted to src.
@@ -267,40 +268,41 @@ class TestPhasingResultVisualizer(unittest.TestCase):
 
         # --- Setup ---
         real_tokenizer = AlleleTokenizer()
-        visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer)
-        # Mock ranked candidates data for the first sample
-        mock_scores = [-1.0, -2.5, -3.0]
-        ranked_candidates = [
-            [(('A*01', 'B*01'), torch.tensor(mock_scores[0])),
-             (('A*02', 'B*01'), torch.tensor(mock_scores[1])),
-             (('A*03', 'B*03'), torch.tensor(mock_scores[2]))],
-            # Add data for a second sample (should only plot first by default)
-            [(('C*01', 'D*01'), torch.tensor(-0.5))]
-        ]
-        output_filename = "test_likelihoods.png"
-        expected_output_path = os.path.join(visualizer.output_dir, output_filename) # Assuming output_dir exists
+        with tempfile.TemporaryDirectory() as tmpdir:
+            visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer, output_dir=tmpdir)
+            # Mock ranked candidates data for the first sample
+            mock_scores = [-1.0, -2.5, -3.0]
+            ranked_candidates = [
+                [(('A*01', 'B*01'), torch.tensor(mock_scores[0])),
+                 (('A*02', 'B*01'), torch.tensor(mock_scores[1])),
+                 (('A*03', 'B*03'), torch.tensor(mock_scores[2]))],
+                # Add data for a second sample (should only plot first by default)
+                [(('C*01', 'D*01'), torch.tensor(-0.5))]
+            ]
+            output_filename = "test_likelihoods.png"
+            expected_output_path = os.path.join(visualizer.output_dir, output_filename)
 
-        # Access the mocked plt object via the visualizer instance
-        mock_plt = visualizer.plt
-        mock_fig = MagicMock()
-        mock_ax = MagicMock()
-        mock_plt.subplots.return_value = (mock_fig, mock_ax)
+            # Access the mocked plt object via the visualizer instance
+            mock_plt = visualizer.plt
+            mock_fig = MagicMock()
+            mock_ax = MagicMock()
+            mock_plt.subplots.return_value = (mock_fig, mock_ax)
 
-        # --- Act ---
-        visualizer.plot_likelihoods(ranked_candidates, output_path=expected_output_path)
+            # --- Act ---
+            visualizer.plot_likelihoods(ranked_candidates, output_path=expected_output_path)
 
-        # --- Assert ---
-        mock_plt.subplots.assert_called_once_with(figsize=(10, 6)) # Check figsize
-        # Check bar call with ranks starting from 1 and color argument
-        expected_ranks = range(1, len(mock_scores) + 1)
-        mock_ax.bar.assert_called_once_with(expected_ranks, mock_scores, color='skyblue')
-        mock_ax.set_title.assert_called_once_with(ANY) # Check title is set
-        mock_ax.set_xlabel.assert_called_once_with(ANY) # Check xlabel is set
-        mock_ax.set_ylabel.assert_called_once_with(ANY) # Check ylabel is set
-        mock_ax.set_xticks.assert_called_once_with(expected_ranks) # Check xticks
-        mock_ax.grid.assert_called_once_with(axis='y', linestyle='--', alpha=0.7) # Check grid call
-        mock_fig.savefig.assert_called_once_with(expected_output_path)
-        mock_plt.close.assert_called_once_with(mock_fig)
+            # --- Assert ---
+            mock_plt.subplots.assert_called_once_with(figsize=(10, 6)) # Check figsize
+            # Check bar call with ranks starting from 1 and color argument
+            expected_ranks = range(1, len(mock_scores) + 1)
+            mock_ax.bar.assert_called_once_with(expected_ranks, mock_scores, color='skyblue')
+            mock_ax.set_title.assert_called_once_with(ANY) # Check title is set
+            mock_ax.set_xlabel.assert_called_once_with(ANY) # Check xlabel is set
+            mock_ax.set_ylabel.assert_called_once_with(ANY) # Check ylabel is set
+            mock_ax.set_xticks.assert_called_once_with(expected_ranks) # Check xticks
+            mock_ax.grid.assert_called_once_with(axis='y', linestyle='--', alpha=0.7) # Check grid call
+            mock_fig.savefig.assert_called_once_with(expected_output_path)
+            mock_plt.close.assert_called_once_with(mock_fig)
 
     def test_plot_likelihoods_no_matplotlib(self):
         """Test plot_likelihoods does nothing gracefully when matplotlib is unavailable."""
@@ -341,32 +343,33 @@ class TestPhasingResultVisualizer(unittest.TestCase):
 
         # --- Setup ---
         real_tokenizer = AlleleTokenizer()
-        visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer)
-        mock_entropies = np.array([0.5, 0.8, 0.2, 0.55, 0.1])
-        uncertainty_estimates = {'mean_prediction_entropy': torch.tensor(mock_entropies)}
-        output_filename = "test_uncertainty.png"
-        expected_output_path = os.path.join(visualizer.output_dir, output_filename)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer, output_dir=tmpdir)
+            mock_entropies = np.array([0.5, 0.8, 0.2, 0.55, 0.1])
+            uncertainty_estimates = {'mean_prediction_entropy': torch.tensor(mock_entropies)}
+            output_filename = "test_uncertainty.png"
+            expected_output_path = os.path.join(visualizer.output_dir, output_filename)
 
-        mock_plt = visualizer.plt
-        mock_fig = MagicMock()
-        mock_ax = MagicMock()
-        mock_plt.subplots.return_value = (mock_fig, mock_ax)
+            mock_plt = visualizer.plt
+            mock_fig = MagicMock()
+            mock_ax = MagicMock()
+            mock_plt.subplots.return_value = (mock_fig, mock_ax)
 
-        # --- Act ---
-        visualizer.plot_uncertainty(uncertainty_estimates, output_path=expected_output_path)
+            # --- Act ---
+            visualizer.plot_uncertainty(uncertainty_estimates, output_path=expected_output_path)
 
-        # --- Assert ---
-        mock_plt.subplots.assert_called_once()
-        # Check that hist is called with the numpy array of entropies and bins
-        mock_ax.hist.assert_called_once()
-        call_args, call_kwargs = mock_ax.hist.call_args
-        np.testing.assert_array_equal(call_args[0], mock_entropies) # Check data passed to hist
-        self.assertIn('bins', call_kwargs) # Check bins argument was passed
-        mock_ax.set_title.assert_called_once_with(ANY)
-        mock_ax.set_xlabel.assert_called_once_with(ANY)
-        mock_ax.set_ylabel.assert_called_once_with(ANY)
-        mock_fig.savefig.assert_called_once_with(expected_output_path)
-        mock_plt.close.assert_called_once_with(mock_fig)
+            # --- Assert ---
+            mock_plt.subplots.assert_called_once()
+            # Check that hist is called with the numpy array of entropies and bins
+            mock_ax.hist.assert_called_once()
+            call_args, call_kwargs = mock_ax.hist.call_args
+            np.testing.assert_array_equal(call_args[0], mock_entropies) # Check data passed to hist
+            self.assertIn('bins', call_kwargs) # Check bins argument was passed
+            mock_ax.set_title.assert_called_once_with(ANY)
+            mock_ax.set_xlabel.assert_called_once_with(ANY)
+            mock_ax.set_ylabel.assert_called_once_with(ANY)
+            mock_fig.savefig.assert_called_once_with(expected_output_path)
+            mock_plt.close.assert_called_once_with(mock_fig)
 
     def test_plot_uncertainty_no_matplotlib(self):
         """Test plot_uncertainty does nothing gracefully when matplotlib is unavailable."""
@@ -403,49 +406,50 @@ class TestPhasingResultVisualizer(unittest.TestCase):
         real_tokenizer.build_vocabulary('HLA-A', ['A*01', 'A*02'])
         real_tokenizer.build_vocabulary('HLA-B', ['B*01', 'B*02'])
 
-        visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer)
-        # Mock data (using strings for simplicity, implementation might need tokens)
-        genotype_str = {'HLA-A': 'A*01/A*02', 'HLA-B': 'B*01/B*02'} # Example format
-        predicted_pair = ('A*01_B*01', 'A*02_B*02')
-        true_pair = ('A*01_B*02', 'A*02_B*01')
-        output_filename = "test_alignment.png"
-        expected_output_path = os.path.join(visualizer.output_dir, output_filename)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            visualizer = PhasingResultVisualizer(tokenizer=real_tokenizer, output_dir=tmpdir)
+            # Mock data (using strings for simplicity, implementation might need tokens)
+            genotype_str = {'HLA-A': 'A*01/A*02', 'HLA-B': 'B*01/B*02'} # Example format
+            predicted_pair = ('A*01_B*01', 'A*02_B*02')
+            true_pair = ('A*01_B*02', 'A*02_B*01')
+            output_filename = "test_alignment.png"
+            expected_output_path = os.path.join(visualizer.output_dir, output_filename)
 
-        mock_plt = visualizer.plt
-        mock_fig = MagicMock()
-        mock_ax = MagicMock()
-        mock_plt.subplots.return_value = (mock_fig, mock_ax)
+            mock_plt = visualizer.plt
+            mock_fig = MagicMock()
+            mock_ax = MagicMock()
+            mock_plt.subplots.return_value = (mock_fig, mock_ax)
 
-        # --- Act ---
-        visualizer.visualize_alignment(
-            genotype_str, # Pass string representation
-            predicted_pair, # Pass tuple
-            true_haplotypes=true_pair, # Pass tuple
-            output_path=expected_output_path
-        )
+            # --- Act ---
+            visualizer.visualize_alignment(
+                genotype_str, # Pass string representation
+                predicted_pair, # Pass tuple
+                true_haplotypes=true_pair, # Pass tuple
+                output_path=expected_output_path
+            )
 
-        # --- Assert ---
-        mock_plt.subplots.assert_called_once()
-        # Check if text function was called with the expected content structure
-        mock_ax.text.assert_called_once()
-        call_args, call_kwargs = mock_ax.text.call_args
-        alignment_text_arg = call_args[2] # The text content is the 3rd positional arg
-        # Check if key elements are in the generated text
-        self.assertIn("Locus", alignment_text_arg)
-        self.assertIn("Genotype", alignment_text_arg)
-        self.assertIn("Pred H1", alignment_text_arg)
-        self.assertIn("True H2", alignment_text_arg)
-        self.assertIn("A*01/A*02", alignment_text_arg) # Genotype
-        self.assertIn("A*01 ", alignment_text_arg) # Check for Pred H1 allele A*01 (with space padding)
-        self.assertIn("B*01 ", alignment_text_arg) # Check for Pred H1 allele B*01 (with space padding)
-        self.assertIn("A*02 ", alignment_text_arg) # Check for True H2 allele A*02
-        self.assertIn("B*01 ", alignment_text_arg) # Check for True H2 allele B*01
-        self.assertIn("monospace", call_kwargs.get('family')) # Check font
+            # --- Assert ---
+            mock_plt.subplots.assert_called_once()
+            # Check if text function was called with the expected content structure
+            mock_ax.text.assert_called_once()
+            call_args, call_kwargs = mock_ax.text.call_args
+            alignment_text_arg = call_args[2] # The text content is the 3rd positional arg
+            # Check if key elements are in the generated text
+            self.assertIn("Locus", alignment_text_arg)
+            self.assertIn("Genotype", alignment_text_arg)
+            self.assertIn("Pred H1", alignment_text_arg)
+            self.assertIn("True H2", alignment_text_arg)
+            self.assertIn("A*01/A*02", alignment_text_arg) # Genotype
+            self.assertIn("A*01 ", alignment_text_arg) # Check for Pred H1 allele A*01 (with space padding)
+            self.assertIn("B*01 ", alignment_text_arg) # Check for Pred H1 allele B*01 (with space padding)
+            self.assertIn("A*02 ", alignment_text_arg) # Check for True H2 allele A*02
+            self.assertIn("B*01 ", alignment_text_arg) # Check for True H2 allele B*01
+            self.assertIn("monospace", call_kwargs.get('family')) # Check font
 
-        mock_ax.axis.assert_called_once_with('off') # Check if axes are turned off
-        mock_ax.set_title.assert_called_once_with(ANY) # Check title
-        mock_fig.savefig.assert_called_once_with(expected_output_path, bbox_inches='tight', pad_inches=0.1) # Check savefig args
-        mock_plt.close.assert_called_once_with(mock_fig)
+            mock_ax.axis.assert_called_once_with('off') # Check if axes are turned off
+            mock_ax.set_title.assert_called_once_with(ANY) # Check title
+            mock_fig.savefig.assert_called_once_with(expected_output_path, bbox_inches='tight', pad_inches=0.1) # Check savefig args
+            mock_plt.close.assert_called_once_with(mock_fig)
 
 
     def test_visualize_alignment_no_matplotlib(self):

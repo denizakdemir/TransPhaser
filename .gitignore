@@ -136,6 +136,29 @@ cython_debug/
 
 # TransPhaser specific ignores
 *.pt
+checkpoints/
 examples/output/
+examples/debug_output/
+examples/checkpoints/
+output/
+debug_output/
 *.csv.gz
 *.log
+comprehensive_output/
+visualizer_output/
+tests/visualizer_output/
+examples/data/new_unphased_data.csv
+examples/debug_predictions.py
+examples/test_parsing.py
+
+
+# github copilot folder
+.copilot/
+.copilotignore
+.github
+
+
+# any claude related files
+.claude_config/
+.claude_history/
+.claude/

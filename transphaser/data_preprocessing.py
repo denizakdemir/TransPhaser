@@ -14,6 +14,15 @@ class GenotypeDataParser:
     """
     Parses genotype data from a pandas DataFrame, handling different formats
     and validating input.
+
+    Supported Genotype Formats:
+        - Slash-separated (recommended): "A*01/A*02", "B*07/B*08"
+        - Comma-separated: "A*01:01,A*02:01", "B*07:02,B*08:01"
+        - Homozygous (single allele): "A*01" (automatically expanded to "A*01/A*01")
+        - List format: ['A*01', 'A*02'] or ['B*07:02', 'B*08:01']
+
+    The parser automatically detects slash vs comma separators and handles
+    both heterozygous and homozygous genotypes.
     """
     def __init__(self, locus_columns, covariate_columns):
         """
@@ -21,7 +30,10 @@ class GenotypeDataParser:
 
         Args:
             locus_columns (list): List of column names containing HLA genotype data.
-            covariate_columns (list): List of column names containing covariate data.
+                                 Each column should contain genotypes in one of the
+                                 supported formats (slash or comma-separated).
+            covariate_columns (list): List of column names containing covariate data
+                                     (e.g., Population, AgeGroup, etc.).
         """
         if not isinstance(locus_columns, list):
             raise TypeError("locus_columns must be a list")
@@ -63,8 +75,12 @@ class GenotypeDataParser:
                 genotype_entry = row[locus_col]
                 alleles = []
                 if isinstance(genotype_entry, str):
-                    # Split comma-separated string, strip whitespace
-                    alleles = [allele.strip() for allele in genotype_entry.split(',')]
+                    # Try slash separator first (common format like 'A*01/A*02'), then comma
+                    if '/' in genotype_entry:
+                        alleles = [allele.strip() for allele in genotype_entry.split('/')]
+                    else:
+                        # Fall back to comma-separated format
+                        alleles = [allele.strip() for allele in genotype_entry.split(',')]
                 elif isinstance(genotype_entry, list):
                      # Handle list format (to be tested later)
                      alleles = [str(allele).strip() for allele in genotype_entry] # Ensure strings

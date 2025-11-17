@@ -9,7 +9,7 @@ from transphaser.runner import HLAPhasingRunner
 DATA_DIR = "examples/data"
 UNPHASED_DATA_FILE = os.path.join(DATA_DIR, "synthetic_genotypes_unphased.csv")
 PHASED_DATA_FILE = os.path.join(DATA_DIR, "synthetic_haplotypes_phased.csv")
-OUTPUT_DIR = "examples/output"
+OUTPUT_DIR = "output"
 MODEL_SAVE_PATH = os.path.join(OUTPUT_DIR, "trained_model.pt")
 SEED = 42
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -65,19 +65,23 @@ if __name__ == "__main__":
     logging.info("\n--- Loading and Predicting with a New Runner ---")
 
     # Create some new data for prediction
+    # NOTE: Use the same allele format as the training data (2-digit resolution)
+    # NOTE: Predictions are made on the VALIDATION set, so we need multiple samples
     new_data = {
-        'IndividualID': ['new_sample_1', 'new_sample_2'],
-        'HLA-A': ['A*01:01/A*02:01', 'A*03:01/A*04:01'],
-        'HLA-B': ['B*07:01/B*08:01', 'B*09:01/B*10:01'],
-        'HLA-DRB1': ['DRB1*01:01/DRB1*02:01', 'DRB1*03:01/DRB1*04:01'],
-        'Population': ['CEU', 'YRI'],
-        'AgeGroup': ['Young', 'Old']
+        'IndividualID': ['new_sample_1', 'new_sample_2', 'new_sample_3', 'new_sample_4', 'new_sample_5'],
+        'HLA-A': ['A*01/A*02', 'A*03/A*04', 'A*01/A*05', 'A*02/A*03', 'A*04/A*05'],
+        'HLA-B': ['B*07/B*08', 'B*01/B*03', 'B*06/B*07', 'B*03/B*06', 'B*01/B*08'],
+        'HLA-DRB1': ['DRB1*01/DRB1*02', 'DRB1*03/DRB1*04', 'DRB1*01/DRB1*03', 'DRB1*02/DRB1*04', 'DRB1*01/DRB1*04'],
+        'Population': ['EUR', 'ASN', 'AFR', 'EUR', 'ASN'],  # Use populations from training data
+        'AgeGroup': ['0-18', '19-40', '41-65', '65+', '0-18']  # Use age groups from training data
     }
     new_data_df = pd.DataFrame(new_data)
     new_data_path = os.path.join(DATA_DIR, "new_unphased_data.csv")
     new_data_df.to_csv(new_data_path, index=False)
 
     # Create a new configuration for prediction.
+    # Use copy() for backwards compatibility with Pydantic v1
+    # (model_copy() is preferred in v2 but not available in v1)
     config_predict = config_train.copy(deep=True)
     config_predict.data.unphased_data_path = new_data_path
     config_predict.data.phased_data_path = None # No ground truth for prediction

@@ -266,8 +266,10 @@ class TestHLAPhasingRunner(unittest.TestCase):
         runner.predict(model_path=model_path)
         mock_set_seeds.assert_called_once()
         mock_load_data.assert_called_once()
+        # When loading a model, preprocess is called with use_existing_tokenizer=True
         mock_preprocess_data.assert_called_once()
-        mock_build_model.assert_called_once()
+        # _build_model is called from within load_model, not directly from predict
+        # So it may be called once from load_model (if model not already built)
         mock_load_model.assert_called_once_with(model_path)
         mock_predict.assert_called_once()
         mock_evaluate.assert_called_once()

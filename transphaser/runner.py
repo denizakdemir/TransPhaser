@@ -93,8 +93,15 @@ class HLAPhasingRunner:
             logging.error(f"Error loading data: {e}")
             raise
 
-    def _preprocess_data(self, df_unphased, df_phased_truth):
-        """Performs data preprocessing steps."""
+    def _preprocess_data(self, df_unphased, df_phased_truth, use_existing_tokenizer=False):
+        """Performs data preprocessing steps.
+
+        Args:
+            df_unphased: DataFrame with unphased genotype data
+            df_phased_truth: DataFrame with phased haplotype data (optional, can be None)
+            use_existing_tokenizer: If True, use self.tokenizer instead of building a new one.
+                                   This is used when loading a saved model for prediction.
+        """
         logging.info("Preprocessing data...")
         loci = self.config.data.locus_columns
         covariate_cols = self.config.data.covariate_columns if hasattr(self.config.data, 'covariate_columns') else []
@@ -129,18 +136,30 @@ class HLAPhasingRunner:
 
         # --- Initialize Tools ---
         parser = GenotypeDataParser(locus_columns=loci, covariate_columns=covariate_cols)
-        tokenizer = AlleleTokenizer()
-        cov_encoder = CovariateEncoder(
-            categorical_covariates=categorical_covariate_cols,
-            numerical_covariates=numerical_covariate_cols
-        )
 
-        # --- Build Vocabulary ---
-        logging.info("Building allele vocabularies from DataFrame...")
-        tokenizer.build_vocabulary_from_dataframe(df_unphased, loci)
+        # Use existing tokenizer if provided (from loaded model), otherwise create new one
+        if use_existing_tokenizer and hasattr(self, 'tokenizer'):
+            tokenizer = self.tokenizer
+            logging.info("Using tokenizer from loaded model...")
+        else:
+            tokenizer = AlleleTokenizer()
+            # --- Build Vocabulary (IMPORTANT: Only from training data to prevent data leakage) ---
+            logging.info("Building allele vocabularies from training DataFrame...")
+            tokenizer.build_vocabulary_from_dataframe(train_df, loci)
+
         self.vocab_sizes = {locus: tokenizer.get_vocab_size(locus) for locus in loci}
         for locus in loci:
             logging.info(f"  {locus}: {tokenizer.get_vocab_size(locus)} tokens")
+
+        # Use existing covariate encoder if provided (from loaded model), otherwise create new one
+        if use_existing_tokenizer and hasattr(self, 'covariate_encoder') and self.covariate_encoder is not None:
+            cov_encoder = self.covariate_encoder
+            logging.info("Using covariate encoder from loaded model...")
+        else:
+            cov_encoder = CovariateEncoder(
+                categorical_covariates=categorical_covariate_cols,
+                numerical_covariates=numerical_covariate_cols
+            )
 
         # --- Parse Genotypes (using the parser) ---
         # Note: The parser expects specific input format, might need adjustment
@@ -156,8 +175,16 @@ class HLAPhasingRunner:
         # --- Encode Covariates ---
         logging.info("Encoding covariates...")
         if not train_covariates_df.empty:
-            train_covariates_encoded_np = cov_encoder.fit_transform(train_covariates_df).to_numpy(dtype=np.float32)
-            val_covariates_encoded_np = cov_encoder.transform(val_covariates_df).to_numpy(dtype=np.float32)
+            # If using existing encoder (from loaded model), only transform; otherwise fit_transform
+            if use_existing_tokenizer and hasattr(self, 'covariate_encoder') and self.covariate_encoder is not None:
+                train_covariates_encoded_np = cov_encoder.transform(train_covariates_df).to_numpy(dtype=np.float32)
+                val_covariates_encoded_np = cov_encoder.transform(val_covariates_df).to_numpy(dtype=np.float32)
+            else:
+                train_covariates_encoded_np = cov_encoder.fit_transform(train_covariates_df).to_numpy(dtype=np.float32)
+                val_covariates_encoded_np = cov_encoder.transform(val_covariates_df).to_numpy(dtype=np.float32)
+                # Save the encoder for later use
+                self.covariate_encoder = cov_encoder
+
             self.covariate_dim = train_covariates_encoded_np.shape[1]
             logging.info(f"Encoded covariate shapes: Train={train_covariates_encoded_np.shape}, Val={val_covariates_encoded_np.shape}")
         else:
@@ -281,9 +308,15 @@ class HLAPhasingRunner:
 
         # Update with specific encoder/decoder configurations
         if hasattr(self.config.model, 'encoder') and self.config.model.encoder:
-            encoder_cfg.update(self.config.model.encoder.model_dump())
+            # Support both Pydantic v1 (dict()) and v2 (model_dump())
+            dump_method = getattr(self.config.model.encoder, 'model_dump', None) or getattr(self.config.model.encoder, 'dict', None)
+            if dump_method:
+                encoder_cfg.update(dump_method())
         if hasattr(self.config.model, 'decoder') and self.config.model.decoder:
-            decoder_cfg.update(self.config.model.decoder.model_dump())
+            # Support both Pydantic v1 (dict()) and v2 (model_dump())
+            dump_method = getattr(self.config.model.decoder, 'model_dump', None) or getattr(self.config.model.decoder, 'dict', None)
+            if dump_method:
+                decoder_cfg.update(dump_method())
 
 
         self.model = HLAPhasingModel(
@@ -304,19 +337,24 @@ class HLAPhasingRunner:
         # Optimizer (assuming Adam, make configurable later if needed)
         self.optimizer = Adam(self.model.parameters(), lr=self.config.training.learning_rate)
 
-        # Schedulers
-        steps_per_epoch = len(self.train_loader)
-        kl_max_weight = self.config.training.kl_annealing_max_weight if hasattr(self.config.training, 'kl_annealing_max_weight') else 1.0
-        # Determine total steps for annealing based on config (e.g., over N epochs or total steps)
-        anneal_epochs = self.config.training.kl_annealing_epochs if hasattr(self.config.training, 'kl_annealing_epochs') else 1 # Default to 1 epoch
-        total_anneal_steps = steps_per_epoch * anneal_epochs
+        # Schedulers - only set up if we have training data
+        if hasattr(self, 'train_loader') and self.train_loader is not None:
+            steps_per_epoch = len(self.train_loader)
+            kl_max_weight = self.config.training.kl_annealing_max_weight if hasattr(self.config.training, 'kl_annealing_max_weight') else 1.0
+            # Determine total steps for annealing based on config (e.g., over N epochs or total steps)
+            anneal_epochs = self.config.training.kl_annealing_epochs if hasattr(self.config.training, 'kl_annealing_epochs') else 1 # Default to 1 epoch
+            total_anneal_steps = steps_per_epoch * anneal_epochs
 
-        self.kl_scheduler = KLAnnealingScheduler(
-            anneal_type=self.config.training.kl_annealing_type,
-            max_weight=kl_max_weight,
-            total_steps=total_anneal_steps
-        )
-        logging.info(f"KL Annealing configured: type={self.config.training.kl_annealing_type}, max_weight={kl_max_weight}, steps={total_anneal_steps}")
+            self.kl_scheduler = KLAnnealingScheduler(
+                anneal_type=self.config.training.kl_annealing_type,
+                max_weight=kl_max_weight,
+                total_steps=total_anneal_steps
+            )
+            logging.info(f"KL Annealing configured: type={self.config.training.kl_annealing_type}, max_weight={kl_max_weight}, steps={total_anneal_steps}")
+        else:
+            # No training data - likely loading for prediction only
+            self.kl_scheduler = None
+            logging.info("Skipping KL annealing setup (no training data)")
 
         # LR Scheduler (Optional)
         self.lr_scheduler = None
@@ -647,7 +685,7 @@ class HLAPhasingRunner:
             self._finalize()
 
     def save_model(self, filepath):
-        """Saves the model's state dictionary to a file."""
+        """Saves the model's state dictionary along with tokenizer and config to a file."""
         if not hasattr(self, 'model'):
             logging.error("Model has not been built yet. Cannot save.")
             return
@@ -655,26 +693,61 @@ class HLAPhasingRunner:
         try:
             # Ensure the directory exists
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            # Save the model state
-            torch.save(self.model.state_dict(), filepath)
-            logging.info(f"Model state saved successfully to {filepath}")
+
+            # Package everything needed for loading
+            checkpoint = {
+                'model_state_dict': self.model.state_dict(),
+                'tokenizer': self.tokenizer,
+                'config': self.config,
+                'covariate_dim': self.covariate_dim,
+                'vocab_sizes': self.vocab_sizes,
+                'covariate_encoder': getattr(self, 'covariate_encoder', None),
+            }
+
+            # Save the checkpoint
+            torch.save(checkpoint, filepath)
+            logging.info(f"Model state, tokenizer, and config saved successfully to {filepath}")
         except Exception as e:
             logging.error(f"Error saving model to {filepath}: {e}")
             raise
 
     def load_model(self, filepath):
-        """Loads the model's state dictionary from a file."""
-        if not hasattr(self, 'model'):
-            logging.error("Model has not been built yet. Cannot load.")
-            return
-
+        """Loads the model's state dictionary, tokenizer, and config from a file."""
         try:
-            # Load the state dictionary
-            state_dict = torch.load(filepath, map_location=self.device)
-            # Load it into the model
-            self.model.load_state_dict(state_dict)
-            self.model.to(self.device) # Ensure model is on the correct device
-            logging.info(f"Model state loaded successfully from {filepath}")
+            # Load the checkpoint
+            # weights_only=False is required for loading custom objects like tokenizer
+            checkpoint = torch.load(filepath, map_location=self.device, weights_only=False)
+
+            # Check if this is an old-style save (just state_dict) or new style (checkpoint dict)
+            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                # New style - has tokenizer and config
+                logging.info("Loading checkpoint with tokenizer and config...")
+
+                # Restore tokenizer, covariate encoder, and config from checkpoint
+                self.tokenizer = checkpoint['tokenizer']
+                self.covariate_dim = checkpoint['covariate_dim']
+                self.vocab_sizes = checkpoint['vocab_sizes']
+                self.covariate_encoder = checkpoint.get('covariate_encoder', None)
+
+                # Build model with restored tokenizer if not already built
+                if not hasattr(self, 'model'):
+                    self._build_model()
+
+                # Load the model state
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.model.to(self.device)
+                logging.info(f"Model state, tokenizer, and config loaded successfully from {filepath}")
+            else:
+                # Old style - just state_dict
+                logging.warning("Loading old-style checkpoint (state_dict only). Model must already be built with compatible architecture.")
+                if not hasattr(self, 'model'):
+                    logging.error("Model has not been built yet. Cannot load old-style checkpoint.")
+                    raise RuntimeError("Model must be built before loading old-style checkpoint")
+
+                self.model.load_state_dict(checkpoint)
+                self.model.to(self.device)
+                logging.info(f"Model state loaded successfully from {filepath}")
+
         except FileNotFoundError:
             logging.error(f"Model file not found at {filepath}")
             raise
@@ -692,13 +765,27 @@ class HLAPhasingRunner:
         self._finalize()
 
     def predict(self, model_path: str = None):
-        """Runs the prediction and evaluation loops."""
+        """Runs the prediction and evaluation loops.
+
+        Args:
+            model_path: Path to saved model checkpoint. If provided, the tokenizer
+                       from the checkpoint will be used instead of building a new one.
+        """
         self._set_seeds()
         df_unphased, df_phased_truth = self._load_data()
-        self._preprocess_data(df_unphased, df_phased_truth)
-        self._build_model()
+
+        # If loading a model, load it first to get the tokenizer
+        # Then use that tokenizer for preprocessing
         if model_path:
+            # Load model first (which loads tokenizer and builds model)
             self.load_model(model_path)
+            # Now preprocess with the loaded tokenizer
+            self._preprocess_data(df_unphased, df_phased_truth, use_existing_tokenizer=True)
+        else:
+            # Normal flow: preprocess, build model
+            self._preprocess_data(df_unphased, df_phased_truth)
+            self._build_model()
+
         self._predict()
         self._evaluate()
         self._finalize()
