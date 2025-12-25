@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transphaser"
+version = "0.1.0"
+description = "A Transformer-based model for HLA phasing."
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Deniz Akdemir", email = "deniz.akdemir@example.com"}
+]
+keywords = ["HLA", "phasing", "transformer", "deep-learning", "genomics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=2.0.0",
+    "pandas>=1.5.0",
+    "numpy>=1.23.0",
+    "matplotlib>=3.5.0",
+    "scikit-learn>=1.1.0",
+    "pydantic>=2.0.0"
+]
+
+[tool.setuptools.packages.find]
+# Setuptools will automatically find the 'transphaser' package in the root
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
