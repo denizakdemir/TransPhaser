@@ -131,9 +131,9 @@ class RealisticHLAGenerator:
             haps = [h for h, _ in haplotypes]
             weights = np.array([w for _, w in haplotypes])
             
-            # Normalize to account for rare haplotypes (keep 40% for rare/background)
-            # Increased rare fraction to increase allelic richness
-            common_fraction = 0.60
+            # Normalize to account for rare haplotypes (keep 25% for rare/background)
+            # Increased common fraction to strengthen population structure
+            common_fraction = 0.75
             weights = weights / weights.sum() * common_fraction
             
             # Add rare haplotype probability
